@@ -72,6 +72,13 @@ export interface VectorMetadata {
   type?: AtomicType
   status?: Status
   tags?: string[]
+  /** Bi-temporal — inclusive lower bound on the "valid in reality" window. */
+  valid_from?: string
+  /** Bi-temporal — exclusive upper bound. null ⇒ still valid. Set when superseded. */
+  valid_to?: string | null
+  /** If this doc supersedes another, the ID of the doc it invalidated. */
+  superseded_by?: string
+  supersedes?: string
   [k: string]: unknown
 }
 
@@ -184,6 +191,17 @@ export interface RetainInput {
   inboundType?: AtomicType
   inboundPhase?: Phase
   sessionId?: string
+  /**
+   * Bi-temporal conflict policy. Default 'auto':
+   *   auto         → invalidate semantic near-duplicates whose content contradicts the new one
+   *   supersede    → always mark cosine ≥ threshold matches as superseded by this new doc
+   *   coexist      → keep both (Phase 1 behavior)
+   */
+  conflictPolicy?: 'auto' | 'supersede' | 'coexist'
+  /** Threshold at which cosine similarity triggers conflict handling. Default 0.92. */
+  conflictThreshold?: number
+  /** Optional explicit valid_from for the new doc. Defaults to now. */
+  validFrom?: string
 }
 
 export interface RetainResult {
@@ -196,5 +214,7 @@ export interface ConflictRecord {
   existingId: string
   existingPath: string
   reason: string
-  resolution: 'kept_both' | 'marked_invalid' | 'versioned'
+  resolution: 'kept_both' | 'marked_invalid' | 'versioned' | 'superseded'
+  /** When the existing doc was marked invalid (ISO). */
+  superseded_at?: string
 }

@@ -250,6 +250,32 @@ export class VectorStore {
     return this.byId.get(id)
   }
 
+  /**
+   * Patch a stored doc's metadata. Rewrites the JSONL file atomically. Used by
+   * the bi-temporal conflict resolver to flip `valid_to` / `superseded_by`
+   * without re-embedding.
+   *
+   * Returns the new doc, or null if `id` is unknown.
+   */
+  async patchMetadata(
+    id: string,
+    patch: Partial<VectorMetadata>,
+  ): Promise<VectorDoc | null> {
+    await this.ensureLoaded()
+    const existing = this.byId.get(id)
+    if (!existing) return null
+    const updated: VectorDoc = {
+      ...existing,
+      metadata: { ...existing.metadata, ...patch },
+    }
+    const idx = this.docs.findIndex((d) => d.id === id)
+    if (idx >= 0) this.docs[idx] = updated
+    this.byId.set(id, updated)
+    // JSONL is append-only by convention, so rewrite the whole file.
+    await this.rewriteAll(this.docs)
+    return updated
+  }
+
   /** Rewrite the entire store file atomically (used by the rebuild script). */
   async rewriteAll(docs: VectorDoc[]): Promise<void> {
     await mkdir(this.storeDir, { recursive: true })

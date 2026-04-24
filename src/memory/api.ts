@@ -38,13 +38,28 @@ export async function retain(
   store: MemoryStore,
   input: RetainInput,
 ): Promise<RetainResult> {
-  const conflicts = await detectConflicts(store, input)
+  const now = new Date().toISOString()
+  const validFrom = input.validFrom ?? now
 
   const vectorStore = await store.getVectorStore('atomic')
+  const { conflicts, toInvalidate } = await resolveConflicts(store, input, validFrom)
+
   const doc = await vectorStore.add(input.content, {
     ...(input.metadata ?? {}),
     ...(input.sessionId ? { session_id: input.sessionId } : {}),
+    valid_from: validFrom,
+    valid_to: null,
+    ...(toInvalidate.length > 0 ? { supersedes: toInvalidate[0] } : {}),
   })
+
+  // Flip valid_to / superseded_by on each invalidated doc — after we've created
+  // the new one so we can point `superseded_by` at its ID.
+  for (const existingId of toInvalidate) {
+    await vectorStore.patchMetadata(existingId, {
+      valid_to: validFrom,
+      superseded_by: doc.id,
+    })
+  }
 
   let inboundPath: string | undefined
   if (input.proposeInbound) {
@@ -69,35 +84,75 @@ export async function retain(
 }
 
 /**
- * Lightweight conflict detector — reuses semantic search to find very-close
- * existing docs. Heuristic: if cosine ≥ 0.92 and the text isn't identical,
- * we flag it. A full bi-temporal resolver (valid_from/valid_to flip) lives in
- * Phase 2 alongside the Temporal Graph layer.
+ * Bi-temporal conflict resolution. Reuses semantic search to find very-close
+ * existing docs, then applies the requested policy:
+ *   - 'coexist'   (default for agentic turns): keep both, flag conflict.
+ *   - 'supersede' (for authoritative updates):  mark all matches as invalidated.
+ *   - 'auto'      (default):                    supersede iff exact cosine ≥ threshold
+ *                                               AND new text meaningfully differs.
+ *
+ * Returns both the ConflictRecord list (for the caller) and the IDs of docs
+ * that should be invalidated (so retain() can flip valid_to after creating the
+ * new doc — allowing `superseded_by` to point at a known ID).
+ *
+ * Already-invalidated docs (valid_to != null or status=='invalid') are skipped.
  */
-async function detectConflicts(
+async function resolveConflicts(
   store: MemoryStore,
   input: RetainInput,
-): Promise<ConflictRecord[]> {
-  const out: ConflictRecord[] = []
+  nowIso: string,
+): Promise<{ conflicts: ConflictRecord[]; toInvalidate: string[] }> {
+  const conflicts: ConflictRecord[] = []
+  const toInvalidate: string[] = []
+  const policy = input.conflictPolicy ?? 'auto'
+  const threshold = input.conflictThreshold ?? 0.92
+
   try {
     const hits = await store.search(input.content, 'vector', {
-      topK: 3,
-      scoreThreshold: 0.8,
+      topK: 5,
+      scoreThreshold: Math.min(0.8, threshold - 0.05),
     })
+
     for (const h of hits) {
-      if (h.score >= 0.92 && h.snippet.trim() !== input.content.trim()) {
-        out.push({
+      if (h.score < threshold) continue
+      if (isAlreadyInvalid(h.metadata)) continue
+      if (h.snippet.trim() === input.content.trim()) continue // true duplicate — skip
+
+      const reason = `cosine ${h.score.toFixed(3)} ≥ threshold ${threshold}`
+
+      if (policy === 'coexist') {
+        conflicts.push({
           existingId: h.id,
           existingPath: h.path ?? '',
-          reason: `high-similarity pre-existing entry (cosine ${h.score.toFixed(3)})`,
+          reason,
           resolution: 'kept_both',
+        })
+      } else if (
+        policy === 'supersede' ||
+        (policy === 'auto' && h.score >= threshold)
+      ) {
+        toInvalidate.push(h.id)
+        conflicts.push({
+          existingId: h.id,
+          existingPath: h.path ?? '',
+          reason,
+          resolution: 'superseded',
+          superseded_at: nowIso,
         })
       }
     }
   } catch (err) {
     log.warn('conflict detection skipped', { error: (err as Error).message })
   }
-  return out
+
+  return { conflicts, toInvalidate }
+}
+
+function isAlreadyInvalid(metadata?: Record<string, unknown>): boolean {
+  if (!metadata) return false
+  if (metadata['valid_to'] != null) return true
+  if (metadata['status'] === 'invalid') return true
+  return false
 }
 
 function deriveProposedId(input: RetainInput): string {

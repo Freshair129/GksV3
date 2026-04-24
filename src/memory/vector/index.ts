@@ -142,13 +142,22 @@ export class VectorStore implements VectorBackend {
     metadata: VectorMetadata,
     opts: { id?: string; chunkId?: string; source?: string } = {},
   ): Promise<VectorDoc> {
+    const vector = await this.embedder.embed(text)
+    return this.addWithVector(text, vector, metadata, opts)
+  }
+
+  async addWithVector(
+    text: string,
+    vector: number[],
+    metadata: VectorMetadata,
+    opts: { id?: string; chunkId?: string; source?: string } = {},
+  ): Promise<VectorDoc> {
     await this.ensureLoaded()
     this.assertCompatible()
 
-    const vector = await this.embedder.embed(text)
     if (vector.length !== this.embedder.dimension) {
       throw new Error(
-        `embedder returned dim ${vector.length} but declared ${this.embedder.dimension}`,
+        `vector dim ${vector.length} but embedder declared ${this.embedder.dimension}`,
       )
     }
 
@@ -266,19 +275,41 @@ export class VectorStore implements VectorBackend {
     id: string,
     patch: Partial<VectorMetadata>,
   ): Promise<VectorDoc | null> {
+    const [result] = await this.patchMetadataMany([{ id, patch }])
+    return result ?? null
+  }
+
+  /**
+   * Batch variant: apply each patch in-memory, then rewrite the JSONL ONCE.
+   * Avoids the O(N·docCount) rewrite-per-patch hit on the bi-temporal
+   * supersede path (which may invalidate multiple predecessors per retain).
+   */
+  async patchMetadataMany(
+    patches: ReadonlyArray<{ id: string; patch: Partial<VectorMetadata> }>,
+  ): Promise<Array<VectorDoc | null>> {
     await this.ensureLoaded()
-    const existing = this.byId.get(id)
-    if (!existing) return null
-    const updated: VectorDoc = {
-      ...existing,
-      metadata: { ...existing.metadata, ...patch },
+    const results: Array<VectorDoc | null> = []
+    let anyChanged = false
+
+    for (const { id, patch } of patches) {
+      const existing = this.byId.get(id)
+      if (!existing) {
+        results.push(null)
+        continue
+      }
+      const updated: VectorDoc = {
+        ...existing,
+        metadata: { ...existing.metadata, ...patch },
+      }
+      const idx = this.docs.findIndex((d) => d.id === id)
+      if (idx >= 0) this.docs[idx] = updated
+      this.byId.set(id, updated)
+      results.push(updated)
+      anyChanged = true
     }
-    const idx = this.docs.findIndex((d) => d.id === id)
-    if (idx >= 0) this.docs[idx] = updated
-    this.byId.set(id, updated)
-    // JSONL is append-only by convention, so rewrite the whole file.
-    await this.rewriteAll(this.docs)
-    return updated
+
+    if (anyChanged) await this.rewriteAll(this.docs)
+    return results
   }
 
   /** Rewrite the entire store file atomically (used by the rebuild script). */

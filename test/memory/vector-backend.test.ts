@@ -52,6 +52,10 @@ function makeMemoryBackend(name: string, embedder: Embedder): VectorBackend {
 
     async add(text, metadata, opts = {}) {
       const vector = await embedder.embed(text)
+      return backend.addWithVector(text, vector, metadata, opts)
+    },
+
+    async addWithVector(text, vector, metadata, opts = {}) {
       const id = opts.id ?? randomUUID()
       const doc: VectorDoc = {
         id,
@@ -110,16 +114,20 @@ function makeMemoryBackend(name: string, embedder: Embedder): VectorBackend {
     },
 
     async patchMetadata(id: string, patch: Partial<VectorMetadata>): Promise<VectorDoc | null> {
-      const existing = byId.get(id)
-      if (!existing) return null
-      const updated: VectorDoc = {
-        ...existing,
-        metadata: { ...existing.metadata, ...patch },
-      }
-      const idx = docs.findIndex((d) => d.id === id)
-      if (idx >= 0) docs[idx] = updated
-      byId.set(id, updated)
-      return updated
+      const [result] = await backend.patchMetadataMany([{ id, patch }])
+      return result ?? null
+    },
+
+    async patchMetadataMany(patches) {
+      return patches.map(({ id, patch }) => {
+        const existing = byId.get(id)
+        if (!existing) return null
+        const updated: VectorDoc = { ...existing, metadata: { ...existing.metadata, ...patch } }
+        const idx = docs.findIndex((d) => d.id === id)
+        if (idx >= 0) docs[idx] = updated
+        byId.set(id, updated)
+        return updated
+      })
     },
 
     get(id: string) { return byId.get(id) },

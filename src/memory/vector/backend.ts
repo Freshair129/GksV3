@@ -48,6 +48,18 @@ export interface VectorBackend {
     source?: string
   }): Promise<VectorDoc>
 
+  /**
+   * Add using a precomputed vector — skips the embedder call. Used by callers
+   * (e.g. retain()) that embed once and reuse the vector for both conflict
+   * detection and the insert.
+   */
+  addWithVector(
+    text: string,
+    vector: number[],
+    metadata: VectorMetadata,
+    opts?: { id?: string; chunkId?: string; source?: string },
+  ): Promise<VectorDoc>
+
   addBatch(items: VectorBackendAddItem[]): Promise<VectorDoc[]>
 
   search(query: string | number[], opts?: VectorSearchOptions): Promise<VectorHit[]>
@@ -57,6 +69,16 @@ export interface VectorBackend {
    * resolution depends on it (flipping valid_to + superseded_by).
    */
   patchMetadata(id: string, patch: Partial<VectorMetadata>): Promise<VectorDoc | null>
+
+  /**
+   * Batch version — apply each (id, patch) and persist once at the end.
+   * Callers that invalidate N predecessors at once should use this instead
+   * of N patchMetadata() calls, which in the JSONL backend each trigger a
+   * full-file rewrite (O(N·docCount) I/O).
+   */
+  patchMetadataMany(
+    patches: ReadonlyArray<{ id: string; patch: Partial<VectorMetadata> }>,
+  ): Promise<Array<VectorDoc | null>>
 
   get(id: string): VectorDoc | undefined
 

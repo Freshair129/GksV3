@@ -42,9 +42,22 @@ export async function retain(
   const validFrom = input.validFrom ?? now
 
   const vectorStore = await store.getVectorStore('atomic')
-  const { conflicts, toInvalidate } = await resolveConflicts(store, input, validFrom)
+  const embedder = await store.embedder()
 
-  const doc = await vectorStore.add(input.content, {
+  // Embed ONCE and reuse the vector for both conflict detection and the
+  // insert. Previously retain() triggered 2 embedder calls per content
+  // (one inside store.search, one inside vectorStore.add) — expensive on
+  // real providers.
+  const vector = await embedder.embed(input.content)
+
+  const { conflicts, toInvalidate } = await resolveConflicts(
+    vectorStore,
+    vector,
+    input,
+    validFrom,
+  )
+
+  const doc = await vectorStore.addWithVector(input.content, vector, {
     ...(input.metadata ?? {}),
     ...(input.sessionId ? { session_id: input.sessionId } : {}),
     valid_from: validFrom,
@@ -52,13 +65,13 @@ export async function retain(
     ...(toInvalidate.length > 0 ? { supersedes: toInvalidate[0] } : {}),
   })
 
-  // Flip valid_to / superseded_by on each invalidated doc — after we've created
-  // the new one so we can point `superseded_by` at its ID.
-  for (const existingId of toInvalidate) {
-    await vectorStore.patchMetadata(existingId, {
-      valid_to: validFrom,
-      superseded_by: doc.id,
-    })
+  if (toInvalidate.length > 0) {
+    await vectorStore.patchMetadataMany(
+      toInvalidate.map((id) => ({
+        id,
+        patch: { valid_to: validFrom, superseded_by: doc.id },
+      })),
+    )
   }
 
   let inboundPath: string | undefined
@@ -98,7 +111,8 @@ export async function retain(
  * Already-invalidated docs (valid_to != null or status=='invalid') are skipped.
  */
 async function resolveConflicts(
-  store: MemoryStore,
+  vectorStore: Awaited<ReturnType<MemoryStore['getVectorStore']>>,
+  queryVector: number[],
   input: RetainInput,
   nowIso: string,
 ): Promise<{ conflicts: ConflictRecord[]; toInvalidate: string[] }> {
@@ -106,35 +120,29 @@ async function resolveConflicts(
   const toInvalidate: string[] = []
   const policy = input.conflictPolicy ?? 'auto'
   const threshold = input.conflictThreshold ?? 0.92
+  const newTextNorm = input.content.trim()
 
   try {
-    const hits = await store.search(input.content, 'vector', {
+    const hits = await vectorStore.search(queryVector, {
       topK: 5,
       scoreThreshold: Math.min(0.8, threshold - 0.05),
     })
 
     for (const h of hits) {
       if (h.score < threshold) continue
-      if (isAlreadyInvalid(h.metadata)) continue
-      if (h.snippet.trim() === input.content.trim()) continue // true duplicate — skip
+      if (isInvalid(h.doc.metadata)) continue
+      if (h.doc.text.trim() === newTextNorm) continue // true duplicate
 
       const reason = `cosine ${h.score.toFixed(3)} ≥ threshold ${threshold}`
+      const path = (h.doc.metadata['path'] as string | undefined) ?? ''
 
       if (policy === 'coexist') {
+        conflicts.push({ existingId: h.doc.id, existingPath: path, reason, resolution: 'kept_both' })
+      } else if (policy === 'supersede' || policy === 'auto') {
+        toInvalidate.push(h.doc.id)
         conflicts.push({
-          existingId: h.id,
-          existingPath: h.path ?? '',
-          reason,
-          resolution: 'kept_both',
-        })
-      } else if (
-        policy === 'supersede' ||
-        (policy === 'auto' && h.score >= threshold)
-      ) {
-        toInvalidate.push(h.id)
-        conflicts.push({
-          existingId: h.id,
-          existingPath: h.path ?? '',
+          existingId: h.doc.id,
+          existingPath: path,
           reason,
           resolution: 'superseded',
           superseded_at: nowIso,
@@ -148,8 +156,7 @@ async function resolveConflicts(
   return { conflicts, toInvalidate }
 }
 
-function isAlreadyInvalid(metadata?: Record<string, unknown>): boolean {
-  if (!metadata) return false
+function isInvalid(metadata: Record<string, unknown>): boolean {
   if (metadata['valid_to'] != null) return true
   if (metadata['status'] === 'invalid') return true
   return false

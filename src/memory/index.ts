@@ -490,6 +490,14 @@ export {
   wikilinkToPath,
   extractWikilinks,
 } from './obsidian-mcp.js'
+export { startSession, endSession } from './session.js'
+export type {
+  SessionMetadata,
+  StartSessionOptions,
+  StartSessionReport,
+  EndSessionOptions,
+  EndSessionReport,
+} from './session.js'
 export type {
   ObsidianAdapter,
   ObsidianNote,

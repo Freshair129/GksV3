@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "bench:locomo": "tsx benchmarks/locomo.ts",
     "bench:longmemeval": "tsx benchmarks/longmemeval.ts",
+    "bench:beam": "tsx benchmarks/beam.ts",
     "re-embed": "tsx scripts/msp/re-embed.ts"
   },
   "dependencies": {

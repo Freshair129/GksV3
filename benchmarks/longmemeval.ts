@@ -34,14 +34,25 @@
  *   tsx benchmarks/longmemeval.ts --dataset=./data/longmemeval_s.json --top-k=10
  */
 
-import { mkdir, readFile, rm, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { parseArgs } from 'node:util'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { MemoryStore } from '../src/memory/index.js'
 import { recall, retain } from '../src/memory/api.js'
 import { createEmbedder } from '../src/memory/vector/embedder.js'
 import { createLogger } from '../src/lib/logger.js'
+import { fileExists } from '../src/lib/jsonl.js'
+import { containsSnippet, normalizeText } from '../src/lib/text.js'
+import { isPresent, isRecord, pickArray, toStringArray } from '../src/lib/guards.js'
+import {
+  parseBaseBenchArgs,
+  prepareWorkDir,
+  printReport,
+  pct,
+  round2,
+  type BaseBenchOptions,
+  type Provider,
+} from './_harness.js'
 
 const log = createLogger('bench:longmemeval')
 
@@ -70,14 +81,7 @@ interface PerTypeMetrics {
   temporal_total: number
 }
 
-interface RunOptions {
-  datasetPath: string
-  workDir: string
-  topK: number
-  scoreThreshold: number
-  limit?: number
-  provider: 'auto' | 'ollama' | 'openai' | 'mock'
-  fresh: boolean
+interface RunOptions extends BaseBenchOptions {
   reranker: 'lexical' | 'off'
 }
 
@@ -101,8 +105,7 @@ async function main(): Promise<void> {
     limit: opts.limit ?? 'all',
   })
 
-  if (opts.fresh) await rm(opts.workDir, { recursive: true, force: true })
-  await mkdir(opts.workDir, { recursive: true })
+  await prepareWorkDir(opts.workDir, opts.fresh)
 
   const embedder = await createEmbedder({
     ...(opts.provider !== 'auto' ? { forceProvider: opts.provider } : {}),
@@ -163,9 +166,7 @@ async function main(): Promise<void> {
     avg_recall_ms_per_item: round2(totalRecallMs / Math.max(1, overall.total)),
   }
 
-  console.log('\n── LongMemEval Benchmark Report ' + '─'.repeat(32))
-  console.log(JSON.stringify(report, null, 2))
-  console.log('─'.repeat(66))
+  printReport('LongMemEval Benchmark Report', report)
 }
 
 async function runItem(
@@ -249,14 +250,7 @@ async function runItem(
 
 async function loadDataset(path: string): Promise<LongMemEvalItem[]> {
   const raw = await readFile(path, 'utf8')
-  const parsed = JSON.parse(raw) as unknown
-  const arr = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed['items'])
-      ? (parsed['items'] as unknown[])
-      : isRecord(parsed) && Array.isArray(parsed['data'])
-        ? (parsed['data'] as unknown[])
-        : []
+  const arr = pickArray(JSON.parse(raw), ['items', 'data'])
   return arr.map(normalizeItem).filter(isPresent)
 }
 
@@ -305,55 +299,23 @@ function normalizeItem(item: unknown): LongMemEvalItem | null {
   }
 }
 
-function toStringArray(x: unknown): string[] {
-  if (!Array.isArray(x)) return []
-  return x.filter((v): v is string => typeof v === 'string')
-}
-
 // ─── CLI ───────────────────────────────────────────────────────────────────
 
 function parseOptions(): RunOptions {
-  const { values } = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      dataset: { type: 'string' },
-      'work-dir': { type: 'string' },
-      'top-k': { type: 'string' },
-      threshold: { type: 'string' },
-      limit: { type: 'string' },
-      provider: { type: 'string' },
-      reranker: { type: 'string' },
-      fresh: { type: 'boolean' },
+  const { base, values } = parseBaseBenchArgs(
+    {
+      datasetEnvVar: 'LONGMEMEVAL_DATASET',
+      datasetDefaultPath: './benchmarks/data/longmemeval_s.json',
+      workDirDefault: './benchmarks/.cache/longmemeval-run',
+      topKDefault: 10,
+      topKEnvVar: 'LONGMEMEVAL_TOPK',
+      thresholdDefault: 0.2,
+      thresholdEnvVar: 'LONGMEMEVAL_THRESHOLD',
     },
-  })
-
-  const datasetPath = resolve(
-    (values.dataset as string | undefined) ??
-      process.env['LONGMEMEVAL_DATASET'] ??
-      './benchmarks/data/longmemeval_s.json',
+    { reranker: { type: 'string' } },
   )
-  const workDir = resolve(
-    (values['work-dir'] as string | undefined) ?? './benchmarks/.cache/longmemeval-run',
-  )
-  const topK = Number(values['top-k'] ?? process.env['LONGMEMEVAL_TOPK'] ?? 10)
-  const scoreThreshold = Number(
-    values.threshold ?? process.env['LONGMEMEVAL_THRESHOLD'] ?? 0.2,
-  )
-  const limit = values.limit ? Number(values.limit) : undefined
-  const provider = (values.provider as RunOptions['provider']) ?? 'auto'
-  const reranker = (values.reranker as RunOptions['reranker']) ?? 'lexical'
-  const fresh = values.fresh !== false
-
-  return {
-    datasetPath,
-    workDir,
-    topK,
-    scoreThreshold,
-    ...(limit !== undefined ? { limit } : {}),
-    provider,
-    reranker,
-    fresh,
-  }
+  const reranker = (values['reranker'] as RunOptions['reranker']) ?? 'lexical'
+  return { ...base, reranker }
 }
 
 // ─── util ──────────────────────────────────────────────────────────────────
@@ -382,49 +344,6 @@ function metricsReport(m: PerTypeMetrics): Record<string, number> {
   return out
 }
 
-function containsSnippet(haystack: string, needle: string): boolean {
-  const h = normalizeText(haystack)
-  const n = normalizeText(needle)
-  if (!n) return false
-  if (h.includes(n)) return true
-  const hw = new Set(h.split(' ').filter((w) => w.length > 2))
-  const nw = new Set(n.split(' ').filter((w) => w.length > 2))
-  if (nw.size === 0) return false
-  let overlap = 0
-  for (const w of nw) if (hw.has(w)) overlap += 1
-  const union = new Set([...hw, ...nw]).size
-  return overlap / union >= 0.6
-}
-
-function normalizeText(s: string): string {
-  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
-}
-
-function pct(n: number, d: number): number {
-  if (!d) return 0
-  return round2((n / d) * 100)
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null && !Array.isArray(x)
-}
-
-function isPresent<T>(x: T | null | undefined): x is T {
-  return x != null
-}
-
-async function fileExists(p: string): Promise<boolean> {
-  try {
-    await stat(p)
-    return true
-  } catch {
-    return false
-  }
-}
 
 main().catch((err) => {
   log.error('benchmark failed', { err: (err as Error).message, stack: (err as Error).stack })

@@ -35,15 +35,24 @@
  *   tsx benchmarks/beam.ts --corpus=./beam.jsonl --top-k=10 --provider=ollama
  */
 
-import { readFile, stat, mkdir, rm } from 'node:fs/promises'
-import { resolve, join } from 'node:path'
-import { parseArgs } from 'node:util'
+import { readFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 
 import { MemoryStore } from '../src/memory/index.js'
 import { recall, retain } from '../src/memory/api.js'
 import { createEmbedder } from '../src/memory/vector/embedder.js'
 import { estimateTokens } from '../src/memory/vector/chunker.js'
+import { fileExists, forEachJsonl } from '../src/lib/jsonl.js'
+import { isRecord, pickArray } from '../src/lib/guards.js'
 import { createLogger } from '../src/lib/logger.js'
+import {
+  parseBaseBenchArgs,
+  percentile,
+  prepareWorkDir,
+  printReport,
+  round2,
+  type BaseBenchOptions,
+} from './_harness.js'
 
 const log = createLogger('bench:beam')
 
@@ -53,33 +62,26 @@ interface CorpusDoc {
   metadata?: Record<string, unknown>
 }
 
-interface RunOptions {
-  corpusPath: string
+interface RunOptions extends BaseBenchOptions {
   queriesPath?: string
-  workDir: string
-  topK: number
-  scoreThreshold: number
-  ingestLimit?: number
   queryLimit: number
-  provider: 'auto' | 'ollama' | 'openai' | 'mock'
   reranker: 'lexical' | 'off'
-  fresh: boolean
   seed: number
 }
 
 async function main(): Promise<void> {
   const opts = parseOptions()
 
-  if (!(await fileExists(opts.corpusPath))) {
-    log.error('corpus not found', { path: opts.corpusPath })
-    console.error(`\nBEAM corpus not found at: ${opts.corpusPath}\n`)
+  if (!(await fileExists(opts.datasetPath))) {
+    log.error('corpus not found', { path: opts.datasetPath })
+    console.error(`\nBEAM corpus not found at: ${opts.datasetPath}\n`)
     process.exit(2)
   }
 
-  const corpus = await loadCorpus(opts.corpusPath)
-  log.info('corpus loaded', { path: opts.corpusPath, docs: corpus.length })
+  const corpus = await loadCorpus(opts.datasetPath)
+  log.info('corpus loaded', { path: opts.datasetPath, docs: corpus.length })
 
-  const docsToIngest = opts.ingestLimit ? corpus.slice(0, opts.ingestLimit) : corpus
+  const docsToIngest = opts.limit ? corpus.slice(0, opts.limit) : corpus
   const totalTokens = docsToIngest.reduce((a, d) => a + estimateTokens(d.text), 0)
 
   const queries = opts.queriesPath
@@ -90,8 +92,7 @@ async function main(): Promise<void> {
     count: queries.length,
   })
 
-  if (opts.fresh) await rm(opts.workDir, { recursive: true, force: true })
-  await mkdir(opts.workDir, { recursive: true })
+  await prepareWorkDir(opts.workDir, opts.fresh)
 
   const embedder = await createEmbedder({
     ...(opts.provider !== 'auto' ? { forceProvider: opts.provider } : {}),
@@ -148,7 +149,7 @@ async function main(): Promise<void> {
       : 0
 
   const report = {
-    corpus: opts.corpusPath,
+    corpus: opts.datasetPath,
     queries: { source: opts.queriesPath ?? 'synthesized', count: queries.length },
     embedder: { provider: embedder.provider, model: embedder.model, dim: embedder.dimension },
     reranker: opts.reranker,
@@ -178,9 +179,7 @@ async function main(): Promise<void> {
     },
   }
 
-  console.log('\n── BEAM Benchmark Report ' + '─'.repeat(40))
-  console.log(JSON.stringify(report, null, 2))
-  console.log('─'.repeat(66))
+  printReport('BEAM Benchmark Report', report)
 
   // Non-zero exit if a target was explicitly missed (useful for CI gating).
   if (process.env['BEAM_STRICT'] === '1') {
@@ -194,28 +193,15 @@ async function main(): Promise<void> {
 
 async function loadCorpus(path: string): Promise<CorpusDoc[]> {
   if (path.endsWith('.jsonl')) {
-    const txt = await readFile(path, 'utf8')
     const out: CorpusDoc[] = []
-    for (const line of txt.split('\n')) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        out.push(normalizeDoc(JSON.parse(trimmed)))
-      } catch {
-        // ignore malformed lines
-      }
-    }
+    await forEachJsonl<unknown>(path, (row) => {
+      const doc = normalizeDoc(row)
+      if (doc.text.length > 0) out.push(doc)
+    })
     return out
   }
   if (path.endsWith('.json')) {
-    const raw = JSON.parse(await readFile(path, 'utf8')) as unknown
-    const arr = Array.isArray(raw)
-      ? raw
-      : isRecord(raw) && Array.isArray(raw['documents'])
-        ? (raw['documents'] as unknown[])
-        : isRecord(raw) && Array.isArray(raw['data'])
-          ? (raw['data'] as unknown[])
-          : []
+    const arr = pickArray(JSON.parse(await readFile(path, 'utf8')), ['documents', 'data'])
     return arr.map(normalizeDoc).filter((d): d is CorpusDoc => d.text.length > 0)
   }
   // Plain text: split by double-newline paragraphs.
@@ -243,26 +229,26 @@ function normalizeDoc(x: unknown): CorpusDoc {
 
 async function loadQueries(path: string): Promise<string[]> {
   if (path.endsWith('.jsonl')) {
-    const txt = await readFile(path, 'utf8')
     const out: string[] = []
-    for (const line of txt.split('\n')) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        const obj = JSON.parse(trimmed)
-        const q = typeof obj === 'string' ? obj : (obj.query ?? obj.q ?? obj.text)
-        if (typeof q === 'string') out.push(q)
-      } catch {
-        // ignore
-      }
-    }
+    await forEachJsonl<unknown>(path, (row) => {
+      const q = extractQuery(row)
+      if (q) out.push(q)
+    })
     return out
   }
-  const raw = JSON.parse(await readFile(path, 'utf8')) as unknown
-  const arr = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw['queries']) ? (raw['queries'] as unknown[]) : []
-  return arr
-    .map((x) => (typeof x === 'string' ? x : isRecord(x) ? ((x['query'] as string | undefined) ?? (x['q'] as string | undefined) ?? '') : ''))
-    .filter((q): q is string => !!q)
+  const arr = pickArray(JSON.parse(await readFile(path, 'utf8')), ['queries'])
+  return arr.map(extractQuery).filter((q): q is string => !!q)
+}
+
+function extractQuery(x: unknown): string {
+  if (typeof x === 'string') return x
+  if (!isRecord(x)) return ''
+  return (
+    (x['query'] as string | undefined) ??
+    (x['q'] as string | undefined) ??
+    (x['text'] as string | undefined) ??
+    ''
+  )
 }
 
 function synthesizeQueries(corpus: CorpusDoc[], n: number, seed: number): string[] {
@@ -300,75 +286,40 @@ function mulberry32(seed: number): () => number {
 // ─── CLI ────────────────────────────────────────────────────────────────
 
 function parseOptions(): RunOptions {
-  const { values } = parseArgs({
-    args: process.argv.slice(2),
-    options: {
+  const { base, values } = parseBaseBenchArgs(
+    {
+      // BEAM aliases 'dataset' to the more domain-appropriate 'corpus' in docs,
+      // but accepts either via BEAM_CORPUS env and (below) a --corpus flag.
+      datasetEnvVar: 'BEAM_CORPUS',
+      datasetDefaultPath: './benchmarks/data/beam-tiny.jsonl',
+      workDirDefault: './benchmarks/.cache/beam-run',
+      topKDefault: 5,
+      topKEnvVar: 'BEAM_TOPK',
+      thresholdDefault: 0.2,
+    },
+    {
       corpus: { type: 'string' },
       queries: { type: 'string' },
-      'work-dir': { type: 'string' },
-      'top-k': { type: 'string' },
-      threshold: { type: 'string' },
-      'ingest-limit': { type: 'string' },
       'query-limit': { type: 'string' },
-      provider: { type: 'string' },
       reranker: { type: 'string' },
-      fresh: { type: 'boolean' },
       seed: { type: 'string' },
     },
-  })
-
-  const corpusPath = resolve(
-    (values.corpus as string | undefined) ??
-      process.env['BEAM_CORPUS'] ??
-      './benchmarks/data/beam-tiny.jsonl',
-  )
-  const queriesPathVal = (values.queries as string | undefined) ?? process.env['BEAM_QUERIES']
-  const workDir = resolve(
-    (values['work-dir'] as string | undefined) ?? './benchmarks/.cache/beam-run',
   )
 
-  const base = {
-    corpusPath,
-    workDir,
-    topK: Number(values['top-k'] ?? process.env['BEAM_TOPK'] ?? 5),
-    scoreThreshold: Number(values.threshold ?? 0.2),
-    queryLimit: Number(values['query-limit'] ?? 200),
-    provider: (values.provider as RunOptions['provider']) ?? 'auto',
-    reranker: (values.reranker as RunOptions['reranker']) ?? 'lexical',
-    fresh: values.fresh !== false,
-    seed: Number(values.seed ?? 42),
-  }
+  // Allow --corpus as an alias for --dataset (BEAM's historical name).
+  const corpusOverride = values['corpus'] as string | undefined
+  const datasetPath = corpusOverride ? resolve(corpusOverride) : base.datasetPath
+
+  const queriesPathVal =
+    (values['queries'] as string | undefined) ?? process.env['BEAM_QUERIES']
 
   return {
     ...base,
+    datasetPath,
     ...(queriesPathVal ? { queriesPath: resolve(queriesPathVal) } : {}),
-    ...(values['ingest-limit'] ? { ingestLimit: Number(values['ingest-limit']) } : {}),
-  }
-}
-
-// ─── util ───────────────────────────────────────────────────────────────
-
-function percentile(values: number[], p: number): number {
-  if (values.length === 0) return 0
-  const sorted = [...values].sort((a, b) => a - b)
-  const idx = Math.floor((p / 100) * (sorted.length - 1))
-  return sorted[idx]!
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null && !Array.isArray(x)
-}
-
-async function fileExists(p: string): Promise<boolean> {
-  try {
-    await stat(p)
-    return true
-  } catch {
-    return false
+    queryLimit: Number(values['query-limit'] ?? 200),
+    reranker: (values['reranker'] as RunOptions['reranker']) ?? 'lexical',
+    seed: Number(values['seed'] ?? 42),
   }
 }
 

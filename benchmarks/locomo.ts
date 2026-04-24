@@ -39,14 +39,24 @@
  * or equivalently, a flat `{sample: [...]}` / `samples: [...]` wrapper.
  */
 
-import { mkdir, readFile, rm, stat } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
-import { parseArgs } from 'node:util'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { MemoryStore } from '../src/memory/index.js'
 import { recall, retain } from '../src/memory/api.js'
 import { createEmbedder } from '../src/memory/vector/embedder.js'
 import { createLogger } from '../src/lib/logger.js'
+import { fileExists } from '../src/lib/jsonl.js'
+import { containsSnippet, normalizeText } from '../src/lib/text.js'
+import { isPresent, isRecord, pickArray } from '../src/lib/guards.js'
+import {
+  parseBaseBenchArgs,
+  prepareWorkDir,
+  printReport,
+  pct,
+  round2,
+  type BaseBenchOptions,
+} from './_harness.js'
 
 const log = createLogger('bench:locomo')
 
@@ -74,15 +84,7 @@ interface LocomoConversation {
   qa: LocomoQa[]
 }
 
-interface RunOptions {
-  datasetPath: string
-  workDir: string
-  topK: number
-  scoreThreshold: number
-  limit?: number
-  provider: 'auto' | 'ollama' | 'openai' | 'mock'
-  fresh: boolean
-}
+type RunOptions = BaseBenchOptions
 
 async function main(): Promise<void> {
   const opts = parseOptions()
@@ -105,8 +107,7 @@ async function main(): Promise<void> {
     limit: opts.limit ?? 'all',
   })
 
-  if (opts.fresh) await rm(opts.workDir, { recursive: true, force: true })
-  await mkdir(opts.workDir, { recursive: true })
+  await prepareWorkDir(opts.workDir, opts.fresh)
 
   const embedder = await createEmbedder({
     ...(opts.provider !== 'auto' ? { forceProvider: opts.provider } : {}),
@@ -168,9 +169,7 @@ async function main(): Promise<void> {
     avg_recall_ms_per_qa: round2(aggregate.recallMs / Math.max(1, aggregate.qaTotal)),
   }
 
-  console.log('\n── LoCoMo Benchmark Report ' + '─'.repeat(40))
-  console.log(JSON.stringify(report, null, 2))
-  console.log('─'.repeat(66))
+  printReport('LoCoMo Benchmark Report', report)
 }
 
 async function runConversation(
@@ -263,18 +262,7 @@ async function loadDataset(path: string): Promise<LocomoConversation[]> {
 }
 
 function normalizeDataset(parsed: unknown): LocomoConversation[] {
-  // Accept a handful of known shapes: {conversations: [...]}, {samples: [...]},
-  // {sample: [...]}, or a bare array.
-  const arr: unknown[] = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed['conversations'])
-      ? (parsed['conversations'] as unknown[])
-      : isRecord(parsed) && Array.isArray(parsed['samples'])
-        ? (parsed['samples'] as unknown[])
-        : isRecord(parsed) && Array.isArray(parsed['sample'])
-          ? (parsed['sample'] as unknown[])
-          : []
-
+  const arr = pickArray(parsed, ['conversations', 'samples', 'sample'])
   const out: LocomoConversation[] = []
   arr.forEach((item, i) => {
     const normalized = normalizeConversation(item, i)
@@ -368,95 +356,17 @@ function normalizeQa(item: Record<string, unknown>): LocomoQa[] {
 // ─── CLI ───────────────────────────────────────────────────────────────────
 
 function parseOptions(): RunOptions {
-  const { values } = parseArgs({
-    args: process.argv.slice(2),
-    options: {
-      dataset: { type: 'string' },
-      'work-dir': { type: 'string' },
-      'top-k': { type: 'string' },
-      threshold: { type: 'string' },
-      limit: { type: 'string' },
-      provider: { type: 'string' },
-      fresh: { type: 'boolean' },
-    },
+  const { base } = parseBaseBenchArgs({
+    datasetEnvVar: 'LOCOMO_DATASET',
+    datasetDefaultPath: './benchmarks/data/locomo10.json',
+    workDirDefault: './benchmarks/.cache/locomo-run',
+    topKDefault: 10,
+    topKEnvVar: 'LOCOMO_TOPK',
+    thresholdDefault: 0.25,
+    thresholdEnvVar: 'LOCOMO_THRESHOLD',
   })
-
-  const datasetPath = resolve(
-    (values.dataset as string | undefined) ??
-      process.env['LOCOMO_DATASET'] ??
-      './benchmarks/data/locomo10.json',
-  )
-  const workDir = resolve(
-    (values['work-dir'] as string | undefined) ?? './benchmarks/.cache/locomo-run',
-  )
-  const topK = Number(values['top-k'] ?? process.env['LOCOMO_TOPK'] ?? 10)
-  const scoreThreshold = Number(
-    values.threshold ?? process.env['LOCOMO_THRESHOLD'] ?? 0.25,
-  )
-  const limit = values.limit ? Number(values.limit) : undefined
-  const provider = (values.provider as RunOptions['provider']) ?? 'auto'
-  const fresh = values.fresh !== false // default true — benchmarks want isolation
-
-  return {
-    datasetPath,
-    workDir,
-    topK,
-    scoreThreshold,
-    ...(limit !== undefined ? { limit } : {}),
-    provider,
-    fresh,
-  }
+  return base
 }
-
-// ─── util ──────────────────────────────────────────────────────────────────
-
-function containsSnippet(haystack: string, needle: string): boolean {
-  const h = normalizeText(haystack)
-  const n = normalizeText(needle)
-  if (!n) return false
-  if (h.includes(n)) return true
-  // Fallback: lenient word-overlap (≥ 0.6 Jaccard) for paraphrase-y evidence.
-  const hw = new Set(h.split(' ').filter((w) => w.length > 2))
-  const nw = new Set(n.split(' ').filter((w) => w.length > 2))
-  if (nw.size === 0) return false
-  let overlap = 0
-  for (const w of nw) if (hw.has(w)) overlap += 1
-  const union = new Set([...hw, ...nw]).size
-  return overlap / union >= 0.6
-}
-
-function normalizeText(s: string): string {
-  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
-}
-
-function pct(n: number, d: number): number {
-  if (!d) return 0
-  return round2((n / d) * 100)
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null && !Array.isArray(x)
-}
-
-function isPresent<T>(x: T | null | undefined): x is T {
-  return x != null
-}
-
-async function fileExists(p: string): Promise<boolean> {
-  try {
-    await stat(p)
-    return true
-  } catch {
-    return false
-  }
-}
-
-// Suppress unused-import warning from tsc in strict mode.
-void dirname
 
 main().catch((err) => {
   log.error('benchmark failed', { err: (err as Error).message, stack: (err as Error).stack })

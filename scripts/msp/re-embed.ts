@@ -26,7 +26,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -337,6 +337,3 @@ main().catch((err) => {
   })
   process.exit(1)
 })
-
-// keep tsc happy about unused
-void stat

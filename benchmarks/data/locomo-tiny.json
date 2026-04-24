@@ -1,0 +1,40 @@
+{
+  "conversations": [
+    {
+      "id": "tiny-001",
+      "sessions": [
+        {
+          "session_id": "s1",
+          "messages": [
+            { "speaker": "Alice", "text": "I adopted a golden retriever named Biscuit last spring in Boston." },
+            { "speaker": "Bob", "text": "That's wonderful. Is Biscuit good with other dogs?" },
+            { "speaker": "Alice", "text": "Yes, Biscuit gets along with everyone. She loves the dog park on Beacon Hill." }
+          ]
+        },
+        {
+          "session_id": "s2",
+          "messages": [
+            { "speaker": "Alice", "text": "My sister Emma is visiting next month for her birthday on July 14." },
+            { "speaker": "Bob", "text": "What does Emma do for work?" },
+            { "speaker": "Alice", "text": "Emma is a marine biologist studying coral reefs in the Caribbean." }
+          ]
+        },
+        {
+          "session_id": "s3",
+          "messages": [
+            { "speaker": "Alice", "text": "I finally finished my novel about a lighthouse keeper in Maine." },
+            { "speaker": "Bob", "text": "Congratulations! How many pages is the manuscript?" },
+            { "speaker": "Alice", "text": "The final draft came out to 287 pages. My agent is shopping it to publishers now." }
+          ]
+        }
+      ],
+      "qa": [
+        { "question": "What is the name of Alice's dog?", "answer": "Biscuit", "evidence": ["golden retriever named Biscuit"] },
+        { "question": "When is Emma's birthday?", "answer": "July 14", "evidence": ["birthday on July 14"] },
+        { "question": "What does Emma do?", "answer": "marine biologist", "evidence": ["Emma is a marine biologist"] },
+        { "question": "How many pages is Alice's novel?", "answer": "287", "evidence": ["287 pages"] },
+        { "question": "Where does Alice live?", "answer": "Boston", "evidence": ["golden retriever named Biscuit last spring in Boston"] }
+      ]
+    }
+  ]
+}

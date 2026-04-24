@@ -1,0 +1,26 @@
+{
+  "name": "gks-v3",
+  "version": "3.5.0",
+  "description": "Genesis Knowledge System v3 — EVA Tri-Brain memory fabric (Phase 1 MVP)",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench:locomo": "tsx benchmarks/locomo.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}

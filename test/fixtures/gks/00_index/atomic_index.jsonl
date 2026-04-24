@@ -1,0 +1,3 @@
+{"id":"CONCEPT--EVA-TRI-BRAIN","phase":1,"type":"concept","status":"stable","vault_id":"EVA-AGENT-001","path":"phase2_atomic/concept/eva-tri-brain.md","title":"EVA Tri-Brain","tags":["architecture","core"]}
+{"id":"FRAME--TRI-BRAIN-ARCHITECTURE","phase":2,"type":"frame","status":"stable","vault_id":"EVA-AGENT-001","path":"phase2_atomic/concept/tri-brain-architecture.md","title":"Tri-Brain Architecture","tags":["architecture","framework"]}
+{"id":"ADR--FILE-BASED-VECTOR","phase":2,"type":"adr","status":"draft","vault_id":"EVA-AGENT-001","path":"phase2_atomic/concept/adr-file-based-vector.md","title":"ADR: File-based Vector Store","tags":["decision","vector"]}

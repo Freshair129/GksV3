@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+
+# local env / secrets
+.env
+.env.local
+
+# local runtime state (keep structure via .gitkeep)
+.brain/**/vector/*.jsonl
+.brain/**/vector/_manifest.json
+.brain/**/logs/
+.brain/**/session/
+
+# benchmarks cache
+benchmarks/.cache/

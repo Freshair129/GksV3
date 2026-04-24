@@ -498,6 +498,18 @@ export type {
   EndSessionOptions,
   EndSessionReport,
 } from './session.js'
+export { GraphStore } from './graph.js'
+export type {
+  GraphBackend,
+  GraphNode,
+  GraphEdge,
+  AddNodeArgs,
+  AddEdgeArgs,
+  GraphQuery,
+  NeighborQuery,
+  NeighborResult,
+  GraphStoreOptions,
+} from './graph.js'
 export type {
   ObsidianAdapter,
   ObsidianNote,

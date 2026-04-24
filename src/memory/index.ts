@@ -34,6 +34,7 @@ import { VectorStore } from './vector/index.js'
 import { createEmbedder, type Embedder, type EmbedderOptions } from './vector/embedder.js'
 import { EpisodicLayer } from './episodic.js'
 import { InboundQueue } from './inbound.js'
+import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('memory')
@@ -58,6 +59,19 @@ export interface MemoryStoreOptions {
   vectorScoreThreshold?: number
   /** Cap on merged retrieval results (matches BLUEPRINT merge_policy.max_total). */
   maxTotal?: number
+  /**
+   * Reranker configuration. Omit to use the lexical BM25-lite default
+   * (zero-deps, always-available). Pass `{ enabled: false }` to disable.
+   */
+  reranker?: RerankerOptions & {
+    enabled?: boolean
+    /** Blend weight — final = (1 - alpha) * firstPass + alpha * rerankerScore. Default 0.6. */
+    alpha?: number
+    /** Min-max normalize reranker scores before blending. Default true. */
+    normalize?: boolean
+    /** Rerank only this many first-pass hits (keeps latency bounded). Default 20. */
+    limit?: number
+  }
 }
 
 export class MemoryStore {
@@ -71,6 +85,13 @@ export class MemoryStore {
   private readonly maxTotal: number
   private readonly embedderOptions: EmbedderOptions | undefined
   private readonly preBuiltEmbedder: Embedder | undefined
+  private readonly rerankerConfig: {
+    enabled: boolean
+    alpha: number
+    normalize: boolean
+    limit: number
+    instance: Reranker | null
+  }
 
   private _embedder: Embedder | null = null
   private readonly stores = new Map<string, VectorStore>()
@@ -103,6 +124,16 @@ export class MemoryStore {
     this.maxTotal = opts.maxTotal ?? 10
     this.embedderOptions = opts.embedderOptions
     this.preBuiltEmbedder = opts.embedder
+
+    const r = opts.reranker ?? {}
+    const rerankerEnabled = r.enabled !== false
+    this.rerankerConfig = {
+      enabled: rerankerEnabled,
+      alpha: r.alpha ?? 0.6,
+      normalize: r.normalize ?? true,
+      limit: r.limit ?? 20,
+      instance: rerankerEnabled ? createReranker(r) : null,
+    }
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -254,14 +285,41 @@ export class MemoryStore {
     // obsidian layer: Phase 1 stub — returns nothing but reserves the source tag.
 
     const resultsPerSource = await Promise.all(tasks)
-    const merged = mergeAndRerank(resultsPerSource.flat(), {
+    const dedupMax = opts.topK ? Math.min(opts.topK, this.maxTotal) : this.maxTotal
+
+    // Merge + dedup + stable-boost first, but keep the candidate set a bit
+    // wider than the final cap so the reranker has room to reorder. We pull
+    // up to `rerankerConfig.limit` candidates when the reranker is live.
+    const preRerankMax = this.rerankerConfig.enabled
+      ? Math.max(dedupMax, this.rerankerConfig.limit)
+      : dedupMax
+
+    const candidates = mergeAndRerank(resultsPerSource.flat(), {
       boostStable: opts.boostStable ?? true,
-      maxTotal: opts.topK ? Math.min(opts.topK, this.maxTotal) : this.maxTotal,
+      maxTotal: preRerankMax,
     })
+
+    const reranked = this.rerankerConfig.enabled && this.rerankerConfig.instance
+      ? await rerank(
+          this.rerankerConfig.instance,
+          {
+            query,
+            hits: candidates,
+            getText: (h) => h.snippet,
+            getScore: (h) => h.score,
+            withScore: (h, s) => ({ ...h, score: s }),
+          },
+          {
+            alpha: this.rerankerConfig.alpha,
+            normalize: this.rerankerConfig.normalize,
+            limit: this.rerankerConfig.limit,
+          },
+        )
+      : candidates
 
     return {
       query,
-      hits: merged,
+      hits: reranked.slice(0, dedupMax),
       strategy,
       tookMs: Date.now() - started,
     }
@@ -367,4 +425,6 @@ export { EpisodicLayer } from './episodic.js'
 export { InboundQueue } from './inbound.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'
 export type { Embedder, EmbedderOptions, EmbedderInfo } from './vector/embedder.js'
+export { createReranker, rerank } from './rerank.js'
+export type { Reranker, RerankerOptions } from './rerank.js'
 export * from './types.js'

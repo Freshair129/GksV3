@@ -15,7 +15,8 @@
     "bench:locomo": "tsx benchmarks/locomo.ts",
     "bench:longmemeval": "tsx benchmarks/longmemeval.ts",
     "bench:beam": "tsx benchmarks/beam.ts",
-    "re-embed": "tsx scripts/msp/re-embed.ts"
+    "re-embed": "tsx scripts/msp/re-embed.ts",
+    "quickstart": "tsx examples/quickstart.ts"
   },
   "dependencies": {
     "yaml": "^2.5.1"

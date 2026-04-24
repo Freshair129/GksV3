@@ -188,11 +188,17 @@ async function main(): Promise<void> {
   }
 
   // Update file_hashes in the manifest; delete entries for removed paths.
-  for (const relPath of deleted) {
-    await vStore.setFileHash(relPath, '') // empty = tombstone
-  }
-  for (const [relPath, hash] of currentHashes) {
-    await vStore.setFileHash(relPath, hash)
+  // setFileHash is optional on VectorBackend — skip gracefully if a custom
+  // backend doesn't implement it (manifest will lag but incremental mode
+  // still works against the on-disk JSONL default).
+  if (vStore.setFileHash) {
+    const setFileHash = vStore.setFileHash.bind(vStore)
+    for (const relPath of deleted) {
+      await setFileHash(relPath, '') // empty = tombstone
+    }
+    for (const [relPath, hash] of currentHashes) {
+      await setFileHash(relPath, hash)
+    }
   }
 
   const finalManifest = vStore.getManifest()

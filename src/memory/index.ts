@@ -31,6 +31,10 @@ import type {
 
 import { AtomicLayer } from './gks.js'
 import { VectorStore } from './vector/index.js'
+import type {
+  VectorBackend,
+  VectorBackendFactory,
+} from './vector/backend.js'
 import { createEmbedder, type Embedder, type EmbedderOptions } from './vector/embedder.js'
 import { EpisodicLayer } from './episodic.js'
 import { InboundQueue } from './inbound.js'
@@ -86,6 +90,12 @@ export interface MemoryStoreOptions {
   obsidian?: ObsidianAdapter
   /** TTL (seconds) for the Obsidian cache. Default 120 (BLUEPRINT). */
   obsidianCacheTtlSeconds?: number
+  /**
+   * Optional VectorBackend factory. Lets pgvector / HNSW / Turbopuffer
+   * adapters plug in without touching MemoryStore. If omitted, we default
+   * to the JSONL-backed VectorStore at <vectorDir>/<name>.jsonl.
+   */
+  vectorBackend?: VectorBackendFactory
 }
 
 export class MemoryStore {
@@ -109,7 +119,8 @@ export class MemoryStore {
   private readonly obsidian: ObsidianAdapter | null
 
   private _embedder: Embedder | null = null
-  private readonly stores = new Map<string, VectorStore>()
+  private readonly stores = new Map<string, VectorBackend>()
+  private readonly vectorBackendFactory: VectorBackendFactory | null
 
   constructor(opts: MemoryStoreOptions) {
     this.root = resolve(opts.root)
@@ -153,6 +164,8 @@ export class MemoryStore {
     this.obsidian = opts.obsidian
       ? withCache(opts.obsidian, { ttlSeconds: opts.obsidianCacheTtlSeconds ?? 120 })
       : null
+
+    this.vectorBackendFactory = opts.vectorBackend ?? null
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -182,19 +195,26 @@ export class MemoryStore {
   }
 
   /** Get (or create) a named vector store under the configured vectorDir. */
-  async getVectorStore(name: 'atomic' | 'obsidian' | 'episodic' | (string & {})): Promise<VectorStore> {
+  async getVectorStore(name: 'atomic' | 'obsidian' | 'episodic' | (string & {})): Promise<VectorBackend> {
     const existing = this.stores.get(name)
     if (existing) return existing
     const embedder = await this.embedder()
-    const store = new VectorStore({
-      path: join(this.vectorDir, `${name}.jsonl`),
-      embedder,
-      name,
-      scoreThreshold: this.vectorScoreThreshold,
-    })
-    await store.load()
-    this.stores.set(name, store)
-    return store
+
+    let backend: VectorBackend
+    if (this.vectorBackendFactory) {
+      backend = await this.vectorBackendFactory(name, embedder)
+    } else {
+      const jsonl = new VectorStore({
+        path: join(this.vectorDir, `${name}.jsonl`),
+        embedder,
+        name,
+        scoreThreshold: this.vectorScoreThreshold,
+      })
+      await jsonl.load()
+      backend = jsonl
+    }
+    this.stores.set(name, backend)
+    return backend
   }
 
   // ─── core methods (BLUEPRINT contract) ─────────────────────────────────
@@ -471,6 +491,7 @@ function mergeAndRerank(
 /** Re-export concrete layer types so callers can `import { ... } from '.../memory'`. */
 export { AtomicLayer } from './gks.js'
 export { VectorStore } from './vector/index.js'
+export type { VectorBackend, VectorBackendFactory, VectorBackendAddItem } from './vector/backend.js'
 export { EpisodicLayer } from './episodic.js'
 export { InboundQueue } from './inbound.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'

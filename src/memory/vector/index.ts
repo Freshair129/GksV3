@@ -49,11 +49,16 @@ export interface VectorStoreOptions {
   scoreThreshold?: number
 }
 
+import type { VectorBackend } from './backend.js'
+
 /**
  * In-memory + on-disk JSONL vector store. All docs held in memory for Phase 1;
  * swap in a streaming/mmap variant once we cross ~100k docs.
+ *
+ * Implements the VectorBackend interface so callers that depend on the
+ * abstraction can swap in pgvector/HNSW/Turbopuffer without changes.
  */
-export class VectorStore {
+export class VectorStore implements VectorBackend {
   readonly path: string
   readonly name: string
   readonly embedder: Embedder

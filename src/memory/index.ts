@@ -427,4 +427,10 @@ export { createEmbedder, mockEmbedder } from './vector/embedder.js'
 export type { Embedder, EmbedderOptions, EmbedderInfo } from './vector/embedder.js'
 export { createReranker, rerank } from './rerank.js'
 export type { Reranker, RerankerOptions } from './rerank.js'
+export { createAnthropicClient, createLlmExtractor } from './consolidator-llm.js'
+export type {
+  LlmClient,
+  AnthropicClientOptions,
+  LlmExtractorOptions,
+} from './consolidator-llm.js'
 export * from './types.js'

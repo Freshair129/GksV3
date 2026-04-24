@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, appendFile, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, appendFile, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -61,4 +61,24 @@ export async function readJson<T>(path: string): Promise<T> {
 export async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, JSON.stringify(value, null, 2) + '\n', 'utf8')
+}
+
+export async function readJsonSafe<T>(path: string): Promise<T | null> {
+  try {
+    return await readJson<T>(path)
+  } catch {
+    return null
+  }
+}
+
+/** True iff `path` exists and is accessible. Prefer try/readFile/catch for
+ *  hot-path reads to avoid the TOCTOU — use this only for pre-flight checks
+ *  (CLI arg validation, benchmark bootstrap). */
+export async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
 }

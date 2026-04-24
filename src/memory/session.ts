@@ -19,7 +19,7 @@
  * spinning up an orchestrator.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -28,7 +28,7 @@ import type { ConsolidationInput } from './consolidator.js'
 import type { SummaryExtractor } from './consolidator.js'
 import type { TraceStep } from './types.js'
 import { reflect, type ReflectResult } from './api.js'
-import { readJson, writeJson } from '../lib/jsonl.js'
+import { readJsonSafe, writeJson } from '../lib/jsonl.js'
 import { manifestCompatible, readManifest } from './vector/manifest.js'
 import { createLogger } from '../lib/logger.js'
 
@@ -202,7 +202,7 @@ export async function endSession(
   // Update session.json → status: ended.
   const sessionDir = opts.sessionDir ?? deriveSessionDir(store)
   const sessionFilePath = join(sessionDir, `${session.id}.session.json`)
-  const existing = await readJsonSafe(sessionFilePath)
+  const existing = await readJsonSafe<Record<string, unknown>>(sessionFilePath)
   const merged = {
     ...(existing ?? {}),
     ...session,
@@ -213,7 +213,7 @@ export async function endSession(
     proposals: reflectResult?.proposals.length ?? 0,
     episodic_path: reflectResult?.episodicPath,
   }
-  await writeFile(sessionFilePath, JSON.stringify(merged, null, 2) + '\n', 'utf8')
+  await writeJson(sessionFilePath, merged)
 
   log.info('session ended', {
     id: session.id,
@@ -254,14 +254,6 @@ function deriveSessionDir(store: MemoryStore): string {
 function deriveVectorDir(store: MemoryStore): string {
   // MemoryStoreOptions stores vectorDir privately; the default matches.
   return join(store.root, '.brain', 'msp', 'projects', 'evaAI', 'vector')
-}
-
-async function readJsonSafe(path: string): Promise<Record<string, unknown> | null> {
-  try {
-    return await readJson<Record<string, unknown>>(path)
-  } catch {
-    return null
-  }
 }
 
 async function pingObsidianWithTimeout(

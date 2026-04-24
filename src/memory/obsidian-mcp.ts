@@ -28,6 +28,7 @@
  *   - A small TTL cache wraps any adapter (defaults to 120s per BLUEPRINT).
  */
 
+import { normalizeText } from '../lib/text.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('obsidian')
@@ -375,8 +376,8 @@ function extractContext(text: string, needle: string, len: number): string {
 }
 
 function scoreOverlap(haystack: string, needle: string): number {
-  const hw = new Set(haystack.toLowerCase().split(/\W+/).filter((w) => w.length > 1))
-  const nw = needle.toLowerCase().split(/\W+/).filter((w) => w.length > 1)
+  const hw = new Set(normalizeText(haystack).split(' ').filter((w) => w.length > 1))
+  const nw = normalizeText(needle).split(' ').filter((w) => w.length > 1)
   if (nw.length === 0) return 0
   let overlap = 0
   for (const w of nw) if (hw.has(w)) overlap += 1

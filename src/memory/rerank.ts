@@ -20,6 +20,7 @@
  * and before the maxTotal cap. See src/memory/index.ts.
  */
 
+import { tokenize } from '../lib/text.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('memory:rerank')
@@ -157,14 +158,6 @@ function lexicalReranker(): Reranker {
       })
     },
   }
-}
-
-function tokenize(s: string): string[] {
-  return s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((t) => t.length > 1)
 }
 
 // ─── http (BGE rerank-compatible) ──────────────────────────────────────────

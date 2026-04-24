@@ -22,6 +22,7 @@ import type {
   SummaryExtractor,
 } from './consolidator.js'
 import type { InboundArtifact, Phase, TraceStep } from './types.js'
+import { isPresent, isRecord, toStringArray } from '../lib/guards.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('consolidator:llm')
@@ -325,15 +326,3 @@ function validateExtractorOutput(x: unknown): ParsedExtractorOutput | null {
   return { summary, tags, outcomes, emotionSummary, linkedAtoms, proposals }
 }
 
-function toStringArray(x: unknown): string[] {
-  if (!Array.isArray(x)) return []
-  return x.filter((v): v is string => typeof v === 'string')
-}
-
-function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null && !Array.isArray(x)
-}
-
-function isPresent<T>(x: T | null | undefined): x is T {
-  return x != null
-}

@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bench:locomo": "tsx benchmarks/locomo.ts",
-    "bench:longmemeval": "tsx benchmarks/longmemeval.ts"
+    "bench:longmemeval": "tsx benchmarks/longmemeval.ts",
+    "re-embed": "tsx scripts/msp/re-embed.ts"
   },
   "dependencies": {
     "yaml": "^2.5.1"

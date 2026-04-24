@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bench:locomo": "tsx benchmarks/locomo.ts"
+    "bench:locomo": "tsx benchmarks/locomo.ts",
+    "bench:longmemeval": "tsx benchmarks/longmemeval.ts"
   },
   "dependencies": {
     "yaml": "^2.5.1"

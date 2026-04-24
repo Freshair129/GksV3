@@ -35,6 +35,11 @@ import { createEmbedder, type Embedder, type EmbedderOptions } from './vector/em
 import { EpisodicLayer } from './episodic.js'
 import { InboundQueue } from './inbound.js'
 import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
+import {
+  withCache,
+  type ObsidianAdapter,
+  type ObsidianSearchHit,
+} from './obsidian-mcp.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('memory')
@@ -72,6 +77,15 @@ export interface MemoryStoreOptions {
     /** Rerank only this many first-pass hits (keeps latency bounded). Default 20. */
     limit?: number
   }
+  /**
+   * Obsidian adapter. Omit to disable the Obsidian source in retrieve()
+   * (a no-op, matching Phase 1 behavior). Pass a RestObsidianAdapter or
+   * MockObsidianAdapter. The adapter is wrapped in a 120s TTL cache by
+   * default — override with `obsidianCacheTtlSeconds`.
+   */
+  obsidian?: ObsidianAdapter
+  /** TTL (seconds) for the Obsidian cache. Default 120 (BLUEPRINT). */
+  obsidianCacheTtlSeconds?: number
 }
 
 export class MemoryStore {
@@ -92,6 +106,7 @@ export class MemoryStore {
     limit: number
     instance: Reranker | null
   }
+  private readonly obsidian: ObsidianAdapter | null
 
   private _embedder: Embedder | null = null
   private readonly stores = new Map<string, VectorStore>()
@@ -134,6 +149,10 @@ export class MemoryStore {
       limit: r.limit ?? 20,
       instance: rerankerEnabled ? createReranker(r) : null,
     }
+
+    this.obsidian = opts.obsidian
+      ? withCache(opts.obsidian, { ttlSeconds: opts.obsidianCacheTtlSeconds ?? 120 })
+      : null
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -238,7 +257,7 @@ export class MemoryStore {
     const started = Date.now()
     const strategy = opts.strategy ?? 'multi'
     const topK = opts.topK ?? 5
-    const sources = opts.sources ?? defaultSources(strategy)
+    const sources = opts.sources ?? defaultSources(strategy, this.obsidian != null)
 
     const tasks: Array<Promise<RetrievalHit[]>> = []
 
@@ -282,7 +301,21 @@ export class MemoryStore {
       )
     }
 
-    // obsidian layer: Phase 1 stub — returns nothing but reserves the source tag.
+    if (sources.includes('obsidian') && this.obsidian) {
+      tasks.push(
+        (async () => {
+          try {
+            const hits = await this.obsidian!.search(query, { limit: topK })
+            return hits.map(obsidianHitToRetrieval)
+          } catch (err) {
+            log.warn('obsidian source failed, continuing without', {
+              err: (err as Error).message,
+            })
+            return []
+          }
+        })(),
+      )
+    }
 
     const resultsPerSource = await Promise.all(tasks)
     const dedupMax = opts.topK ? Math.min(opts.topK, this.maxTotal) : this.maxTotal
@@ -346,7 +379,10 @@ function looksLikeAtomicId(s: string): boolean {
   return ATOMIC_ID.test(s.trim())
 }
 
-function defaultSources(strategy: RetrievalOptions['strategy']): Array<'atomic' | 'vector' | 'episodic' | 'obsidian'> {
+function defaultSources(
+  strategy: RetrievalOptions['strategy'],
+  hasObsidian: boolean,
+): Array<'atomic' | 'vector' | 'episodic' | 'obsidian'> {
   switch (strategy) {
     case 'atomic':
       return ['atomic']
@@ -358,7 +394,9 @@ function defaultSources(strategy: RetrievalOptions['strategy']): Array<'atomic' 
       return ['obsidian']
     case 'multi':
     default:
-      return ['atomic', 'vector', 'episodic']
+      return hasObsidian
+        ? ['atomic', 'vector', 'episodic', 'obsidian']
+        : ['atomic', 'vector', 'episodic']
   }
 }
 
@@ -390,6 +428,18 @@ function vectorHitToRetrieval(h: VectorHit): RetrievalHit {
     ...(typeof m['title'] === 'string' ? { title: m['title'] as string } : {}),
     snippet: snippetFrom(h.doc.text, 240),
     metadata: m,
+  }
+}
+
+function obsidianHitToRetrieval(h: ObsidianSearchHit): RetrievalHit {
+  return {
+    id: h.path,
+    source: 'obsidian',
+    score: h.score,
+    path: h.path,
+    title: h.title,
+    snippet: h.snippet,
+    metadata: { matchedBy: h.matchedBy },
   }
 }
 
@@ -433,4 +483,18 @@ export type {
   AnthropicClientOptions,
   LlmExtractorOptions,
 } from './consolidator-llm.js'
+export {
+  createMockObsidianAdapter,
+  createRestObsidianAdapter,
+  withCache as wrapObsidianWithCache,
+  wikilinkToPath,
+  extractWikilinks,
+} from './obsidian-mcp.js'
+export type {
+  ObsidianAdapter,
+  ObsidianNote,
+  ObsidianSearchHit,
+  RestObsidianOptions,
+  MockVault,
+} from './obsidian-mcp.js'
 export * from './types.js'

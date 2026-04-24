@@ -84,6 +84,14 @@ export interface VectorBackend {
 
   clear(): Promise<void>
 
+  /**
+   * Snapshot of currently-stored docs (required for full-store introspection:
+   * the re-embed script's incremental path, bulk migration tools, audits).
+   * In-memory backends return a shallow copy; streaming backends may choose
+   * to throw on stores above a documented size.
+   */
+  listDocs(): readonly VectorDoc[]
+
   /** Optional — bulk rewrite (used by the re-embed script). */
   rewriteAll?(docs: VectorDoc[]): Promise<void>
 

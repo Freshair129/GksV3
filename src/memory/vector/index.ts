@@ -264,6 +264,10 @@ export class VectorStore implements VectorBackend {
     return this.byId.get(id)
   }
 
+  listDocs(): readonly VectorDoc[] {
+    return this.docs
+  }
+
   /**
    * Patch a stored doc's metadata. Rewrites the JSONL file atomically. Used by
    * the bi-temporal conflict resolver to flip `valid_to` / `superseded_by`

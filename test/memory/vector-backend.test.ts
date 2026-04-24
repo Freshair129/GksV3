@@ -132,6 +132,8 @@ function makeMemoryBackend(name: string, embedder: Embedder): VectorBackend {
 
     get(id: string) { return byId.get(id) },
 
+    listDocs() { return docs },
+
     async clear() {
       docs.length = 0
       byId.clear()

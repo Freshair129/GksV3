@@ -103,20 +103,28 @@ export class MemoryStore {
   readonly atomic: AtomicLayer
   readonly episodic: EpisodicLayer
   readonly inbound: InboundQueue
+  /** Optional Obsidian adapter (wrapped in TTL cache if configured). Null when omitted. */
+  readonly obsidian: ObsidianAdapter | null
+  /** Absolute dir where vector stores live. Useful for scripts / session hooks. */
+  readonly vectorDir: string
+  /** Absolute dir where session traces + manifests live. */
+  readonly sessionDir: string
 
-  private readonly vectorDir: string
   private readonly vectorScoreThreshold: number
   private readonly maxTotal: number
   private readonly embedderOptions: EmbedderOptions | undefined
   private readonly preBuiltEmbedder: Embedder | undefined
-  private readonly rerankerConfig: {
-    enabled: boolean
+  /**
+   * `instance` is the canonical source of truth: null ⇒ reranker disabled.
+   * alpha/normalize/limit are blend-stage knobs the stage reads at each
+   * retrieve() call.
+   */
+  private readonly rerankBlend: {
     alpha: number
     normalize: boolean
     limit: number
     instance: Reranker | null
   }
-  private readonly obsidian: ObsidianAdapter | null
 
   private _embedder: Embedder | null = null
   private readonly stores = new Map<string, VectorBackend>()
@@ -133,11 +141,13 @@ export class MemoryStore {
     this.vectorDir =
       opts.vectorDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'vector')
 
+    this.sessionDir =
+      opts.sessionDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'session')
+
     this.episodic = new EpisodicLayer({
       memoryDir:
         opts.episodicDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'memory'),
-      sessionDir:
-        opts.sessionDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'session'),
+      sessionDir: this.sessionDir,
     })
 
     this.inbound = new InboundQueue({
@@ -152,13 +162,11 @@ export class MemoryStore {
     this.preBuiltEmbedder = opts.embedder
 
     const r = opts.reranker ?? {}
-    const rerankerEnabled = r.enabled !== false
-    this.rerankerConfig = {
-      enabled: rerankerEnabled,
+    this.rerankBlend = {
       alpha: r.alpha ?? 0.6,
       normalize: r.normalize ?? true,
       limit: r.limit ?? 20,
-      instance: rerankerEnabled ? createReranker(r) : null,
+      instance: r.enabled === false ? null : createReranker(r),
     }
 
     this.obsidian = opts.obsidian
@@ -340,21 +348,19 @@ export class MemoryStore {
     const resultsPerSource = await Promise.all(tasks)
     const dedupMax = opts.topK ? Math.min(opts.topK, this.maxTotal) : this.maxTotal
 
-    // Merge + dedup + stable-boost first, but keep the candidate set a bit
-    // wider than the final cap so the reranker has room to reorder. We pull
-    // up to `rerankerConfig.limit` candidates when the reranker is live.
-    const preRerankMax = this.rerankerConfig.enabled
-      ? Math.max(dedupMax, this.rerankerConfig.limit)
-      : dedupMax
+    // Pull enough candidates for the reranker to have room to reorder; cap
+    // to dedupMax if the reranker is disabled.
+    const blend = this.rerankBlend
+    const preRerankMax = blend.instance ? Math.max(dedupMax, blend.limit) : dedupMax
 
     const candidates = mergeAndRerank(resultsPerSource.flat(), {
       boostStable: opts.boostStable ?? true,
       maxTotal: preRerankMax,
     })
 
-    const reranked = this.rerankerConfig.enabled && this.rerankerConfig.instance
+    const reranked = blend.instance
       ? await rerank(
-          this.rerankerConfig.instance,
+          blend.instance,
           {
             query,
             hits: candidates,
@@ -363,9 +369,9 @@ export class MemoryStore {
             withScore: (h, s) => ({ ...h, score: s }),
           },
           {
-            alpha: this.rerankerConfig.alpha,
-            normalize: this.rerankerConfig.normalize,
-            limit: this.rerankerConfig.limit,
+            alpha: blend.alpha,
+            normalize: blend.normalize,
+            limit: blend.limit,
           },
         )
       : candidates

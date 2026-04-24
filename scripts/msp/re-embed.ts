@@ -142,9 +142,7 @@ async function main(): Promise<void> {
 
   // Full rebuild: re-embed everything. Incremental: merge changed+deleted into
   // the existing doc list.
-  let existingDocs: VectorDoc[] = opts.full
-    ? []
-    : allDocsOf(vStore) // Phase 1: held in-memory; scale to streaming in Phase 2.
+  let existingDocs: VectorDoc[] = opts.full ? [] : [...vStore.listDocs()]
 
   // Drop docs belonging to changed-or-deleted relPaths.
   if (!opts.full) {
@@ -272,17 +270,6 @@ function docId(relPath: string, chunkIdx: number, fileHash: string): string {
   // Deterministic IDs so incremental runs don't churn unrelated docs.
   const h = createHash('sha256').update(`${relPath}::${chunkIdx}::${fileHash}`).digest('hex')
   return h.slice(0, 32)
-}
-
-/**
- * Internal-only: grab all docs from a VectorStore. VectorStore intentionally
- * doesn't expose its docs array, but during a rebuild we own the process, so
- * we reach in via a public helper.
- */
-function allDocsOf(vStore: Awaited<ReturnType<MemoryStore['getVectorStore']>>): VectorDoc[] {
-  // VectorStore doesn't have a public list() yet — add one for this script.
-  const anyStore = vStore as unknown as { docs?: VectorDoc[] }
-  return anyStore.docs ? [...anyStore.docs] : []
 }
 
 function parseOptions(): Options {

@@ -76,7 +76,7 @@ export async function startSession(
 
   // 2. Resolve embedder + verify vector manifest compatibility.
   const embedder = await store.embedder()
-  const vectorDir = deriveVectorDir(store)
+  const vectorDir = store.vectorDir
   const manifest = await readManifest(vectorDir)
   const vectorManifestCompatible = manifest
     ? manifestCompatible(manifest, embedder.model, embedder.dimension)
@@ -91,10 +91,10 @@ export async function startSession(
 
   // 3. Ping obsidian (non-blocking, best-effort).
   const obsidianReachable = await pingObsidianWithTimeout(
-    store,
+    store.obsidian,
     opts.obsidianPingTimeoutMs ?? 500,
   )
-  if (store['obsidian' as keyof MemoryStore] && !obsidianReachable) {
+  if (store.obsidian && !obsidianReachable) {
     warnings.push('obsidian adapter configured but unreachable; retrieve() will skip that source')
   }
 
@@ -114,7 +114,7 @@ export async function startSession(
     ...(opts.tags ? { tags: opts.tags } : {}),
   }
 
-  const sessionDir = opts.sessionDir ?? deriveSessionDir(store)
+  const sessionDir = opts.sessionDir ?? store.sessionDir
   await mkdir(sessionDir, { recursive: true })
   const sessionFilePath = join(sessionDir, `${session.id}.session.json`)
   await writeJson(sessionFilePath, { ...session, status: 'active' })
@@ -200,7 +200,7 @@ export async function endSession(
   }
 
   // Update session.json → status: ended.
-  const sessionDir = opts.sessionDir ?? deriveSessionDir(store)
+  const sessionDir = opts.sessionDir ?? store.sessionDir
   const sessionFilePath = join(sessionDir, `${session.id}.session.json`)
   const existing = await readJsonSafe<Record<string, unknown>>(sessionFilePath)
   const merged = {
@@ -244,23 +244,10 @@ function generateSessionId(): string {
   return `MSP-SESS-${yy}${mm}${dd}${serial}`
 }
 
-function deriveSessionDir(store: MemoryStore): string {
-  // EpisodicLayer holds session dir state; reach in via a known field.
-  const ep = store.episodic as unknown as { sessionDir?: string }
-  if (ep.sessionDir) return ep.sessionDir
-  return join(store.root, '.brain', 'msp', 'projects', 'evaAI', 'session')
-}
-
-function deriveVectorDir(store: MemoryStore): string {
-  // MemoryStoreOptions stores vectorDir privately; the default matches.
-  return join(store.root, '.brain', 'msp', 'projects', 'evaAI', 'vector')
-}
-
 async function pingObsidianWithTimeout(
-  store: MemoryStore,
+  obs: MemoryStore['obsidian'],
   timeoutMs: number,
 ): Promise<boolean> {
-  const obs = (store as unknown as { obsidian?: { ping(): Promise<boolean> } | null }).obsidian
   if (!obs) return false
   try {
     const result = await Promise.race([

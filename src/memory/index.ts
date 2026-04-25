@@ -570,6 +570,19 @@ export type {
   EndSessionOptions,
   EndSessionReport,
 } from './session.js'
+export {
+  withSpan,
+  recordHistogram,
+  incrementCounter,
+  timeAsync,
+  METRIC_NAMES,
+} from '../lib/telemetry.js'
+export { setupTelemetry } from '../lib/telemetry-setup.js'
+export type {
+  SetupTelemetryOptions,
+  SetupResult as TelemetrySetupResult,
+} from '../lib/telemetry-setup.js'
+
 export { GraphStore } from './graph.js'
 export type {
   GraphBackend,

@@ -35,6 +35,9 @@
     "yaml": "^2.5.1"
   },
   "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.7.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.215.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.215.0",
     "@opentelemetry/resources": "^2.7.0",
     "@opentelemetry/sdk-metrics": "^2.7.0",
     "@opentelemetry/sdk-trace-base": "^2.7.0",

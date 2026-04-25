@@ -28,44 +28,44 @@
     "multi-tenant",
     "knowledge-graph"
   ],
-  "main": "./dist/memory/index.js",
-  "types": "./dist/memory/index.d.ts",
+  "main": "./dist/src/memory/index.js",
+  "types": "./dist/src/memory/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/memory/index.d.ts",
-      "import": "./dist/memory/index.js"
+      "types": "./dist/src/memory/index.d.ts",
+      "import": "./dist/src/memory/index.js"
     },
     "./memory": {
-      "types": "./dist/memory/index.d.ts",
-      "import": "./dist/memory/index.js"
+      "types": "./dist/src/memory/index.d.ts",
+      "import": "./dist/src/memory/index.js"
     },
     "./mcp-server": {
-      "types": "./dist/mcp-server/index.d.ts",
-      "import": "./dist/mcp-server/index.js"
+      "types": "./dist/src/mcp-server/index.d.ts",
+      "import": "./dist/src/mcp-server/index.js"
     },
     "./telemetry": {
-      "types": "./dist/lib/telemetry.d.ts",
-      "import": "./dist/lib/telemetry.js"
+      "types": "./dist/src/lib/telemetry.d.ts",
+      "import": "./dist/src/lib/telemetry.js"
     },
     "./telemetry-setup": {
-      "types": "./dist/lib/telemetry-setup.d.ts",
-      "import": "./dist/lib/telemetry-setup.js"
+      "types": "./dist/src/lib/telemetry-setup.d.ts",
+      "import": "./dist/src/lib/telemetry-setup.js"
     },
     "./retry": {
-      "types": "./dist/lib/retry.d.ts",
-      "import": "./dist/lib/retry.js"
+      "types": "./dist/src/lib/retry.d.ts",
+      "import": "./dist/src/lib/retry.js"
     },
     "./circuit-breaker": {
-      "types": "./dist/lib/circuit-breaker.d.ts",
-      "import": "./dist/lib/circuit-breaker.js"
+      "types": "./dist/src/lib/circuit-breaker.d.ts",
+      "import": "./dist/src/lib/circuit-breaker.js"
     },
     "./cost": {
-      "types": "./dist/lib/cost-tracker.d.ts",
-      "import": "./dist/lib/cost-tracker.js"
+      "types": "./dist/src/lib/cost-tracker.d.ts",
+      "import": "./dist/src/lib/cost-tracker.js"
     },
     "./schema-version": {
-      "types": "./dist/lib/schema-version.d.ts",
-      "import": "./dist/lib/schema-version.js"
+      "types": "./dist/src/lib/schema-version.d.ts",
+      "import": "./dist/src/lib/schema-version.js"
     }
   },
   "bin": {
@@ -82,7 +82,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/bin/gks.js dist/bin/gks-mcp-server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

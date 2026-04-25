@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * `gks` — CLI for everyday memory ops. Thin wrapper around MemoryStore /
  * api.ts, mostly for quick ad-hoc retain/recall from a shell.
@@ -22,6 +22,7 @@
  */
 
 import { mkdir } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -331,7 +332,9 @@ async function openStore(flags: GlobalFlags): Promise<MemoryStore> {
   const store = new MemoryStore({
     root: flags.root,
     ...(Object.keys(flags.namespace).length > 0 ? { defaultNamespace: flags.namespace } : {}),
-    ...(flags.provider ? { embedderOptions: { forceProvider: flags.provider } } : {}),
+    ...(flags.provider && flags.provider !== 'auto'
+      ? { embedderOptions: { forceProvider: flags.provider } }
+      : {}),
   })
   await store.init()
   return store
@@ -352,11 +355,8 @@ function readPositionalOrStdin(positionals: string[], op: string): string {
     process.exit(1)
   }
   // Synchronous stdin read — small inputs; CLI agents usually pipe one line.
-  const chunks: Buffer[] = []
-  const fs = require('node:fs') as typeof import('node:fs')
-  const buf = fs.readFileSync(0)
-  chunks.push(buf)
-  return Buffer.concat(chunks).toString('utf8').trim()
+  const buf = readFileSync(0)
+  return buf.toString('utf8').trim()
 }
 
 function truncate(s: string, n: number): string {

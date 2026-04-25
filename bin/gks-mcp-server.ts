@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * gks-mcp-server — stdio entry point.
  *
@@ -111,7 +111,9 @@ async function main(): Promise<void> {
   const store = new MemoryStore({
     root: opts.root,
     defaultNamespace: ns,
-    ...(opts.provider ? { embedderOptions: { forceProvider: opts.provider } } : {}),
+    ...(opts.provider && opts.provider !== 'auto'
+      ? { embedderOptions: { forceProvider: opts.provider } }
+      : {}),
     ...(vectorBackend ? { vectorBackend } : {}),
   })
   await store.init()

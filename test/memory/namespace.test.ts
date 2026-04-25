@@ -16,9 +16,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { MemoryStore, mockEmbedder } from '../../src/memory/index.js'
+import type { MemoryStoreOptions } from '../../src/memory/index.js'
 import { recall, retain } from '../../src/memory/api.js'
 
-async function withStore(defaultNamespace: Parameters<typeof MemoryStore>[0]['defaultNamespace'] = {}) {
+async function withStore(defaultNamespace: MemoryStoreOptions['defaultNamespace'] = {}) {
   const root = await mkdtemp(join(tmpdir(), 'gks-ns-'))
   const store = new MemoryStore({
     root,

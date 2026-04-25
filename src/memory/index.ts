@@ -32,6 +32,7 @@ import type {
 } from './types.js'
 
 import { AtomicLayer } from './gks.js'
+import { AuditLog, type AuditLogOptions, type AuditEvent } from './audit.js'
 import { VectorStore } from './vector/index.js'
 import type {
   VectorBackend,
@@ -114,6 +115,13 @@ export interface MemoryStoreOptions {
    * request-scoped MemoryStore instance.
    */
   defaultNamespace?: Namespace
+  /**
+   * Audit log configuration. Pass `{}` to enable with defaults
+   * (writes to <root>/.brain/.../audit/audit-YYYY-MM-DD.jsonl).
+   * Omit entirely to disable auditing — appropriate for offline tests
+   * but NOT for production.
+   */
+  audit?: Partial<AuditLogOptions> | false
 }
 
 export class MemoryStore {
@@ -129,6 +137,8 @@ export class MemoryStore {
   readonly sessionDir: string
   /** Default namespace applied when retain/retrieve callers don't pass one. */
   readonly defaultNamespace: Namespace
+  /** Append-only audit log. Null when audit:false was passed. */
+  readonly audit: AuditLog | null
 
   private readonly vectorScoreThreshold: number
   private readonly maxTotal: number
@@ -198,6 +208,22 @@ export class MemoryStore {
 
     this.vectorBackendFactory = opts.vectorBackend ?? null
     this.defaultNamespace = opts.defaultNamespace ?? {}
+    if (opts.audit === false) {
+      this.audit = null
+    } else {
+      this.audit = new AuditLog({
+        dir:
+          opts.audit?.dir ??
+          join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'audit'),
+        ...(opts.audit?.onEvent ? { onEvent: opts.audit.onEvent } : {}),
+        ...(opts.audit?.maxQueryLength !== undefined
+          ? { maxQueryLength: opts.audit.maxQueryLength }
+          : {}),
+        ...(opts.audit?.disableDisk !== undefined
+          ? { disableDisk: opts.audit.disableDisk }
+          : {}),
+      })
+    }
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -252,7 +278,15 @@ export class MemoryStore {
   // ─── core methods (BLUEPRINT contract) ─────────────────────────────────
 
   async lookup(id: string): Promise<ReturnType<AtomicLayer['lookup']>> {
-    return this.atomic.lookup(id)
+    const result = await this.atomic.lookup(id)
+    if (this.audit) {
+      await this.audit.emit({
+        op: 'lookup',
+        doc_id: id,
+        meta: { found: result != null },
+      })
+    }
+    return result
   }
 
   async search(
@@ -440,6 +474,21 @@ export class MemoryStore {
     })
     incrementCounter(METRIC_NAMES.recallHits, finalHits.length, { strategy })
 
+    if (this.audit) {
+      await this.audit.emit({
+        op: 'recall',
+        ...(opts.crossNamespace
+          ? {}
+          : Object.keys(activeNamespace).length > 0
+            ? { namespace: activeNamespace }
+            : {}),
+        query,
+        hit_count: finalHits.length,
+        strategy,
+        ...(opts.crossNamespace ? { meta: { cross_namespace: true } } : {}),
+      })
+    }
+
     return {
       query,
       hits: finalHits,
@@ -450,10 +499,30 @@ export class MemoryStore {
 
   async writeEpisodic(memory: EpisodicMemory): Promise<void> {
     await this.episodic.writeEpisodic(memory)
+    if (this.audit) {
+      await this.audit.emit({
+        op: 'write_episodic',
+        doc_id: memory.id,
+        meta: { session_id: memory.session_id, duration_min: memory.duration_min },
+      })
+    }
   }
 
   async proposeInbound(artifact: InboundArtifact): Promise<InboundReceipt> {
-    return this.inbound.propose(artifact)
+    const receipt = await this.inbound.propose(artifact)
+    if (this.audit) {
+      await this.audit.emit({
+        op: 'propose_inbound',
+        doc_id: artifact.proposed_id,
+        review_id: receipt.reviewId,
+        meta: {
+          phase: artifact.phase,
+          type: artifact.type,
+          ...(artifact.source_session ? { source_session: artifact.source_session } : {}),
+        },
+      })
+    }
+    return receipt
   }
 
   async appendTrace(sessionId: string, step: Omit<TraceStep, 'session_id' | 't'> & { t?: string }): Promise<void> {
@@ -646,6 +715,9 @@ export type {
   SetupTelemetryOptions,
   SetupResult as TelemetrySetupResult,
 } from '../lib/telemetry-setup.js'
+
+export { AuditLog } from './audit.js'
+export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'
 
 export { GraphStore } from './graph.js'
 export type {

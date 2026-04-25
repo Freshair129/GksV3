@@ -130,6 +130,17 @@ async function retainInner(
     has_conflict: String(conflicts.length > 0),
   })
 
+  if (store.audit) {
+    await store.audit.emit({
+      op: 'retain',
+      ...(Object.keys(effectiveNs).length > 0 ? { namespace: effectiveNs } : {}),
+      doc_id: doc.id,
+      conflicts: conflicts.length,
+      invalidated: toInvalidate.length,
+      ...(inboundPath !== undefined ? { meta: { inbound_path: inboundPath } } : {}),
+    })
+  }
+
   return {
     vectorDocId: doc.id,
     ...(inboundPath !== undefined ? { inboundPath } : {}),

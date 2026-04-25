@@ -502,6 +502,8 @@ export { createPgvectorBackend, vectorToPg, pgToVector } from './vector/pgvector
 export type { PgvectorBackendOptions } from './vector/pgvector.js'
 export { createHnswBackend } from './vector/hnsw.js'
 export type { HnswBackendOptions } from './vector/hnsw.js'
+export { createPgGraphBackend } from './graph/pg.js'
+export type { PgGraphBackendOptions } from './graph/pg.js'
 export { EpisodicLayer } from './episodic.js'
 export { InboundQueue } from './inbound.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'

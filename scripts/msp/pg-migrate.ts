@@ -28,10 +28,14 @@ import { createLogger } from '../../src/lib/logger.js'
 
 const log = createLogger('script:pg-migrate')
 
+type SchemaName = 'vector' | 'graph' | 'all'
+
 interface Options {
   url: string
   table: string
+  graphTable: string
   dim: number
+  schema: SchemaName
   drop: boolean
   verify: boolean
 }
@@ -43,23 +47,49 @@ async function main(): Promise<void> {
   await client.connect()
   try {
     if (opts.drop) {
-      await dropSchema(client, opts.table)
-      log.info('schema dropped', { table: opts.table })
+      if (opts.schema === 'vector' || opts.schema === 'all') {
+        await dropVectorSchema(client, opts.table)
+        log.info('vector schema dropped', { table: opts.table })
+      }
+      if (opts.schema === 'graph' || opts.schema === 'all') {
+        await dropGraphSchema(client, opts.graphTable)
+        log.info('graph schema dropped', { table: opts.graphTable })
+      }
       return
     }
 
-    const sql = await loadSchema(opts.table, opts.dim)
-    log.info('applying schema', { table: opts.table, dim: opts.dim })
-    await client.query(sql)
-
-    if (opts.verify) {
-      await verifySchema(client, opts.table)
+    const applied: string[] = []
+    if (opts.schema === 'vector' || opts.schema === 'all') {
+      const sql = await loadSchemaFile('pgvector.sql', opts.table, opts.dim)
+      log.info('applying vector schema', { table: opts.table, dim: opts.dim })
+      await client.query(sql)
+      applied.push('vector')
+    }
+    if (opts.schema === 'graph' || opts.schema === 'all') {
+      const sql = await loadGraphSchemaFile(opts.graphTable)
+      log.info('applying graph schema', { table: opts.graphTable })
+      await client.query(sql)
+      applied.push('graph')
     }
 
-    log.info('migration complete', { table: opts.table })
+    if (opts.verify) {
+      if (applied.includes('vector')) await verifyVectorSchema(client, opts.table)
+      if (applied.includes('graph')) await verifyGraphSchema(client, opts.graphTable)
+    }
+
+    log.info('migration complete', { applied })
     console.log(
       JSON.stringify(
-        { ok: true, table: opts.table, manifest_table: `${opts.table}_manifest`, dim: opts.dim },
+        {
+          ok: true,
+          applied,
+          ...(applied.includes('vector')
+            ? { vector_table: opts.table, manifest_table: `${opts.table}_manifest`, dim: opts.dim }
+            : {}),
+          ...(applied.includes('graph')
+            ? { graph_node_table: `${opts.graphTable}_node`, graph_edge_table: `${opts.graphTable}_edge` }
+            : {}),
+        },
         null,
         2,
       ),
@@ -69,22 +99,34 @@ async function main(): Promise<void> {
   }
 }
 
-async function loadSchema(table: string, dim: number): Promise<string> {
+async function loadSchemaFile(filename: string, table: string, dim?: number): Promise<string> {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
     throw new Error(`pg-migrate: invalid table name '${table}'`)
   }
-  if (!Number.isInteger(dim) || dim < 1 || dim > 16000) {
+  if (dim !== undefined && (!Number.isInteger(dim) || dim < 1 || dim > 16000)) {
     throw new Error(`pg-migrate: invalid dim ${dim} (must be integer 1..16000)`)
   }
-  // Resolve relative to this script's directory so the binary works wherever
-  // the user runs it from.
+  // Resolve relative to this script's directory so it works wherever the
+  // user runs it from.
   const here = dirname(fileURLToPath(import.meta.url))
-  const sqlPath = resolve(here, '..', '..', 'src', 'memory', 'vector', 'pgvector.sql')
+  const sqlPath = resolve(here, '..', '..', 'src', 'memory', 'vector', filename)
   const raw = await readFile(sqlPath, 'utf8')
-  return raw.replace(/\{\{table\}\}/g, table).replace(/\{\{dim\}\}/g, String(dim))
+  let out = raw.replace(/\{\{table\}\}/g, table)
+  if (dim !== undefined) out = out.replace(/\{\{dim\}\}/g, String(dim))
+  return out
 }
 
-async function verifySchema(client: pg.Client, table: string): Promise<void> {
+async function loadGraphSchemaFile(table: string): Promise<string> {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
+    throw new Error(`pg-migrate: invalid graph table name '${table}'`)
+  }
+  const here = dirname(fileURLToPath(import.meta.url))
+  const sqlPath = resolve(here, '..', '..', 'src', 'memory', 'graph', 'pg.sql')
+  const raw = await readFile(sqlPath, 'utf8')
+  return raw.replace(/\{\{table\}\}/g, table)
+}
+
+async function verifyVectorSchema(client: pg.Client, table: string): Promise<void> {
   const result = await client.query(
     `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = $1`,
     [table],
@@ -93,8 +135,6 @@ async function verifySchema(client: pg.Client, table: string): Promise<void> {
   if (n === 0) {
     throw new Error(`pg-migrate: verification failed — table '${table}' not found after CREATE`)
   }
-
-  // Confirm the HNSW index exists (otherwise queries will fall back to seq scan).
   const idx = await client.query(
     `SELECT indexname FROM pg_indexes WHERE tablename = $1 AND indexname LIKE '%_hnsw_%'`,
     [table],
@@ -104,14 +144,42 @@ async function verifySchema(client: pg.Client, table: string): Promise<void> {
   }
 }
 
-async function dropSchema(client: pg.Client, table: string): Promise<void> {
-  // Validation guards against injection via env / CLI even though we already
-  // checked at parse time.
+async function verifyGraphSchema(client: pg.Client, table: string): Promise<void> {
+  for (const sub of ['_node', '_edge']) {
+    const result = await client.query(
+      `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = $1`,
+      [`${table}${sub}`],
+    )
+    const n = (result.rows[0] as { n: number }).n
+    if (n === 0) {
+      throw new Error(`pg-migrate: verification failed — table '${table}${sub}' not found`)
+    }
+  }
+  const gistIdx = await client.query(
+    `SELECT indexname FROM pg_indexes
+       WHERE tablename = $1 AND indexname LIKE '%_valid_idx'`,
+    [`${table}_edge`],
+  )
+  if (gistIdx.rows.length === 0) {
+    log.warn('graph valid-range GiST index missing — temporal queries will be slow', { table })
+  }
+}
+
+async function dropVectorSchema(client: pg.Client, table: string): Promise<void> {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
     throw new Error(`pg-migrate: invalid table name '${table}'`)
   }
   await client.query(`DROP TABLE IF EXISTS "${table}_manifest"`)
   await client.query(`DROP TABLE IF EXISTS "${table}"`)
+}
+
+async function dropGraphSchema(client: pg.Client, table: string): Promise<void> {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
+    throw new Error(`pg-migrate: invalid graph table name '${table}'`)
+  }
+  // Edge first (it FKs node).
+  await client.query(`DROP TABLE IF EXISTS "${table}_edge"`)
+  await client.query(`DROP TABLE IF EXISTS "${table}_node"`)
 }
 
 function parseOptions(): Options {
@@ -120,6 +188,8 @@ function parseOptions(): Options {
     options: {
       url: { type: 'string' },
       table: { type: 'string' },
+      'graph-table': { type: 'string' },
+      schema: { type: 'string' },
       dim: { type: 'string' },
       drop: { type: 'boolean' },
       verify: { type: 'boolean' },
@@ -132,10 +202,19 @@ function parseOptions(): Options {
     process.exit(2)
   }
 
+  const schemaRaw = (values['schema'] as string | undefined) ?? 'all'
+  if (schemaRaw !== 'vector' && schemaRaw !== 'graph' && schemaRaw !== 'all') {
+    log.error(`invalid --schema='${schemaRaw}' (expected: vector | graph | all)`)
+    process.exit(2)
+  }
+
   return {
     url,
     table: (values.table as string | undefined) ?? process.env['GKS_VECTOR_TABLE'] ?? 'gks_vector',
+    graphTable:
+      (values['graph-table'] as string | undefined) ?? process.env['GKS_GRAPH_TABLE'] ?? 'gks_graph',
     dim: Number(values.dim ?? process.env['GKS_VECTOR_DIM'] ?? 1024),
+    schema: schemaRaw as SchemaName,
     drop: values.drop === true,
     verify: values.verify !== false,
   }

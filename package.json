@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "bin": {
+    "gks": "bin/gks.ts",
     "gks-mcp-server": "bin/gks-mcp-server.ts"
   },
   "engines": {

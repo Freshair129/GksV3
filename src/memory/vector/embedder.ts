@@ -16,6 +16,12 @@
 
 import { createHash } from 'node:crypto'
 import { createLogger } from '../../lib/logger.js'
+import { withRetry } from '../../lib/retry.js'
+import {
+  CircuitBreaker,
+  CircuitBreakerOpenError,
+  type CircuitBreakerOptions,
+} from '../../lib/circuit-breaker.js'
 
 const log = createLogger('vector:embedder')
 
@@ -40,6 +46,19 @@ export interface EmbedderOptions {
   mockDimension?: number
   /** For tests / pinned benchmarks — skip probing and force this provider. */
   forceProvider?: 'ollama' | 'openai' | 'mock'
+  /**
+   * Per-call retry budget for Ollama / OpenAI requests. See
+   * src/lib/retry.ts. Default: 3 attempts, 200ms base, 5s max.
+   */
+  retryMaxAttempts?: number
+  /**
+   * Circuit breaker config wrapping the network embedders. Trips after
+   * `failureThreshold` consecutive failures and short-circuits subsequent
+   * calls for `cooldownMs`. Default: 5 failures / 30s cooldown.
+   * Pass { enabled: false } to disable the breaker entirely (tests that
+   * intentionally cycle through failures, for instance).
+   */
+  breaker?: CircuitBreakerOptions & { enabled?: boolean }
 }
 
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434'
@@ -95,23 +114,32 @@ function ollamaEmbedder(opts: EmbedderOptions): Embedder {
   const baseUrl = opts.ollamaBaseUrl ?? process.env['OLLAMA_BASE_URL'] ?? DEFAULT_OLLAMA_URL
   const model = opts.ollamaModel ?? process.env['OLLAMA_EMBED_MODEL'] ?? DEFAULT_OLLAMA_MODEL
   let dimension = DEFAULT_OLLAMA_DIM // updated from first response
+  const breaker = makeBreaker(opts, 'ollama')
+  const maxAttempts = opts.retryMaxAttempts ?? 3
 
   async function embedOne(text: string): Promise<number[]> {
-    const res = await fetch(`${baseUrl}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model, prompt: text }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`ollama embed ${res.status}: ${body.slice(0, 200)}`)
-    }
-    const data = (await res.json()) as { embedding?: number[] }
-    if (!data.embedding || !Array.isArray(data.embedding)) {
-      throw new Error('ollama: response missing `embedding`')
-    }
-    dimension = data.embedding.length
-    return data.embedding
+    return runWithBreaker(breaker, () =>
+      withRetry(
+        async () => {
+          const res = await fetch(`${baseUrl}/api/embeddings`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ model, prompt: text }),
+          })
+          if (!res.ok) {
+            const body = await res.text().catch(() => '')
+            throw new Error(`ollama embed ${res.status}: ${body.slice(0, 200)}`)
+          }
+          const data = (await res.json()) as { embedding?: number[] }
+          if (!data.embedding || !Array.isArray(data.embedding)) {
+            throw new Error('ollama: response missing `embedding`')
+          }
+          dimension = data.embedding.length
+          return data.embedding
+        },
+        { label: 'ollama-embed', maxAttempts },
+      ),
+    )
   }
 
   return {
@@ -137,26 +165,36 @@ function openaiEmbedder(opts: EmbedderOptions): Embedder {
   const model = opts.openaiModel ?? process.env['OPENAI_EMBED_MODEL'] ?? DEFAULT_OPENAI_MODEL
   let dimension = DEFAULT_OPENAI_DIM
 
+  const breaker = makeBreaker(opts, 'openai')
+  const maxAttempts = opts.retryMaxAttempts ?? 3
+
   async function embedMany(texts: string[]): Promise<number[][]> {
-    const res = await fetch(`${baseUrl}/embeddings`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ model, input: texts }),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`openai embed ${res.status}: ${body.slice(0, 200)}`)
-    }
-    const data = (await res.json()) as {
-      data: Array<{ embedding: number[]; index: number }>
-    }
-    // Sort by returned index to be defensive against reordering.
-    const sorted = [...data.data].sort((a, b) => a.index - b.index)
-    if (sorted.length > 0) dimension = sorted[0]!.embedding.length
-    return sorted.map((d) => d.embedding)
+    return runWithBreaker(breaker, () =>
+      withRetry(
+        async () => {
+          const res = await fetch(`${baseUrl}/embeddings`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ model, input: texts }),
+          })
+          if (!res.ok) {
+            const body = await res.text().catch(() => '')
+            throw new Error(`openai embed ${res.status}: ${body.slice(0, 200)}`)
+          }
+          const data = (await res.json()) as {
+            data: Array<{ embedding: number[]; index: number }>
+          }
+          // Sort by returned index to be defensive against reordering.
+          const sorted = [...data.data].sort((a, b) => a.index - b.index)
+          if (sorted.length > 0) dimension = sorted[0]!.embedding.length
+          return sorted.map((d) => d.embedding)
+        },
+        { label: 'openai-embed', maxAttempts },
+      ),
+    )
   }
 
   return {
@@ -216,6 +254,46 @@ export function mockEmbedder(dim = DEFAULT_MOCK_DIM): Embedder {
 }
 
 // ───────────────────────────────────────────────────────── util
+
+function makeBreaker(
+  opts: EmbedderOptions,
+  name: 'ollama' | 'openai',
+): CircuitBreaker | null {
+  if (opts.breaker?.enabled === false) return null
+  // Only fail-counts on retryable errors that survived the retry budget.
+  // Auth errors (401/403) and bad-input (400/422) shouldn't trip the breaker.
+  return new CircuitBreaker({
+    name: `embedder:${name}`,
+    failureThreshold: opts.breaker?.failureThreshold ?? 5,
+    cooldownMs: opts.breaker?.cooldownMs ?? 30_000,
+    isFailure: opts.breaker?.isFailure ?? defaultEmbedderFailure,
+    ...(opts.breaker?.now ? { now: opts.breaker.now } : {}),
+  })
+}
+
+function defaultEmbedderFailure(err: unknown): boolean {
+  const msg = String((err as Error).message ?? err)
+  // 4xx (except 408/429) shouldn't trip the breaker — fixing those needs a
+  // config change, not a wait.
+  const m = /\b(\d{3})\b/.exec(msg)
+  if (m) {
+    const status = Number(m[1])
+    if (status >= 400 && status < 500 && status !== 408 && status !== 429) return false
+  }
+  return true
+}
+
+async function runWithBreaker<T>(
+  breaker: CircuitBreaker | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!breaker) return fn()
+  return breaker.exec(fn)
+}
+
+// Re-export so callers can detect circuit-breaker errors specifically.
+export { CircuitBreakerOpenError }
+
 
 async function boundedMap<T, R>(
   items: T[],

@@ -90,6 +90,8 @@ export interface MemoryStoreOptions {
   obsidian?: ObsidianAdapter
   /** TTL (seconds) for the Obsidian cache. Default 120 (BLUEPRINT). */
   obsidianCacheTtlSeconds?: number
+  /** Max entries in the Obsidian cache (LRU eviction). Default 1000. */
+  obsidianCacheMaxEntries?: number
   /**
    * Optional VectorBackend factory. Lets pgvector / HNSW / Turbopuffer
    * adapters plug in without touching MemoryStore. If omitted, we default
@@ -170,7 +172,10 @@ export class MemoryStore {
     }
 
     this.obsidian = opts.obsidian
-      ? withCache(opts.obsidian, { ttlSeconds: opts.obsidianCacheTtlSeconds ?? 120 })
+      ? withCache(opts.obsidian, {
+          ttlSeconds: opts.obsidianCacheTtlSeconds ?? 120,
+          maxEntries: opts.obsidianCacheMaxEntries ?? 1000,
+        })
       : null
 
     this.vectorBackendFactory = opts.vectorBackend ?? null

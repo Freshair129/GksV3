@@ -21,6 +21,7 @@
  */
 
 import { tokenize } from '../lib/text.js'
+import { withRetry } from '../lib/retry.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('memory:rerank')
@@ -169,19 +170,27 @@ function httpReranker(endpoint: string, apiKey?: string): Reranker {
       const headers: Record<string, string> = { 'content-type': 'application/json' }
       if (apiKey) headers['authorization'] = `Bearer ${apiKey}`
 
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ query, documents: [...texts] }),
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        throw new Error(`rerank http ${res.status}: ${body.slice(0, 200)}`)
-      }
-      const data = (await res.json()) as { scores?: number[]; results?: Array<{ score: number }> }
-      if (Array.isArray(data.scores)) return data.scores
-      if (Array.isArray(data.results)) return data.results.map((r) => r.score)
-      throw new Error("rerank http: response missing 'scores' or 'results'")
+      return withRetry(
+        async () => {
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ query, documents: [...texts] }),
+          })
+          if (!res.ok) {
+            const body = await res.text().catch(() => '')
+            throw new Error(`rerank http ${res.status}: ${body.slice(0, 200)}`)
+          }
+          const data = (await res.json()) as {
+            scores?: number[]
+            results?: Array<{ score: number }>
+          }
+          if (Array.isArray(data.scores)) return data.scores
+          if (Array.isArray(data.results)) return data.results.map((r) => r.score)
+          throw new Error("rerank http: response missing 'scores' or 'results'")
+        },
+        { label: 'rerank-http' },
+      )
     },
   }
 }

@@ -132,6 +132,62 @@ describe('withCache', () => {
     await cached.search('b')
     expect(calls).toBe(2)
   })
+
+  it('evicts the LRU entry when maxEntries is reached', async () => {
+    let calls = 0
+    const counting: ObsidianAdapter = {
+      id: 'counting',
+      async ping() { return true },
+      async search(query) {
+        calls += 1
+        return [{ path: query, title: query, snippet: '', score: 1, matchedBy: 'fulltext' as const }]
+      },
+      async resolveWikilink() { return null },
+      async backlinksOf() { return [] },
+      async tagQuery() { return [] },
+    }
+    const cached = withCache(counting, { maxEntries: 2, ttlSeconds: 60 })
+
+    await cached.search('a') // calls=1
+    await cached.search('b') // calls=2
+    await cached.search('c') // calls=3, evicts 'a' (oldest)
+    expect(calls).toBe(3)
+
+    // 'b' and 'c' still cached; 'a' evicted → triggers a fresh call.
+    await cached.search('b')
+    await cached.search('c')
+    expect(calls).toBe(3)
+
+    await cached.search('a') // re-fetch
+    expect(calls).toBe(4)
+  })
+
+  it('refreshes recency on cache hit (true LRU semantics)', async () => {
+    let calls = 0
+    const counting: ObsidianAdapter = {
+      id: 'counting',
+      async ping() { return true },
+      async search(query) {
+        calls += 1
+        return [{ path: query, title: query, snippet: '', score: 1, matchedBy: 'fulltext' as const }]
+      },
+      async resolveWikilink() { return null },
+      async backlinksOf() { return [] },
+      async tagQuery() { return [] },
+    }
+    const cached = withCache(counting, { maxEntries: 2, ttlSeconds: 60 })
+
+    await cached.search('a')   // [a]
+    await cached.search('b')   // [a, b]
+    await cached.search('a')   // hit; [b, a]  ← 'a' becomes most-recent
+    await cached.search('c')   // [a, c]; 'b' evicted
+
+    expect(calls).toBe(3) // a once, b once, c once
+
+    await cached.search('a') // still cached
+    await cached.search('b') // re-fetched
+    expect(calls).toBe(4)
+  })
 })
 
 describe('MemoryStore + Obsidian source', () => {

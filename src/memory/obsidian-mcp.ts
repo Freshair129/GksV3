@@ -311,25 +311,51 @@ function byTitle(vault: MockVault, title: string): ObsidianNote | null {
 
 export interface CacheOptions {
   ttlSeconds?: number
+  /** Hard cap on entry count. LRU eviction once exceeded. Default 1000. */
+  maxEntries?: number
 }
 
 /**
- * Wrap any adapter with a tiny TTL cache. Per BLUEPRINT: Obsidian vaults don't
- * change often, so 120s is a reasonable default. Keys are scoped by method +
- * args so a search for "foo" doesn't poison a tagQuery for "foo".
+ * Wrap any adapter with a bounded LRU + TTL cache. Per BLUEPRINT: Obsidian
+ * vaults don't change often, so 120s default TTL is fine. The maxEntries cap
+ * prevents unbounded growth in long-running server-mode processes — the
+ * simplify review flagged this as a slow leak (see ULTRAPLAN H.2 / review M1).
+ *
+ * Keys are scoped by method + args so a search for "foo" doesn't poison a
+ * tagQuery for "foo".
+ *
+ * LRU strategy: insertion-order Map + delete-on-access-and-reinsert. The
+ * standard idiom; O(1) per access, no extra data structure.
  */
 export function withCache(
   inner: ObsidianAdapter,
   opts: CacheOptions = {},
 ): ObsidianAdapter {
   const ttlMs = (opts.ttlSeconds ?? 120) * 1000
+  const maxEntries = Math.max(1, opts.maxEntries ?? 1000)
   const cache = new Map<string, { t: number; value: unknown }>()
+
+  function touch(key: string, value: unknown): void {
+    cache.set(key, { t: Date.now(), value })
+    // Evict LRU when over cap. Map iteration order is insertion order, so the
+    // oldest entry sits at the front.
+    while (cache.size > maxEntries) {
+      const oldestKey = cache.keys().next().value
+      if (oldestKey === undefined) break
+      cache.delete(oldestKey)
+    }
+  }
 
   function remember<T>(key: string, load: () => Promise<T>): Promise<T> {
     const hit = cache.get(key)
-    if (hit && Date.now() - hit.t < ttlMs) return Promise.resolve(hit.value as T)
+    if (hit && Date.now() - hit.t < ttlMs) {
+      // Reinsert to mark as recently-used.
+      cache.delete(key)
+      cache.set(key, hit)
+      return Promise.resolve(hit.value as T)
+    }
     return load().then((value) => {
-      cache.set(key, { t: Date.now(), value })
+      touch(key, value)
       return value
     })
   }

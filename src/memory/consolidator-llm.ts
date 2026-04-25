@@ -23,6 +23,7 @@ import type {
 } from './consolidator.js'
 import type { InboundArtifact, Phase, TraceStep } from './types.js'
 import { isPresent, isRecord, toStringArray } from '../lib/guards.js'
+import { withRetry } from '../lib/retry.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('consolidator:llm')
@@ -68,32 +69,36 @@ export function createAnthropicClient(opts: AnthropicClientOptions = {}): LlmCli
   return {
     name: `anthropic:${model}`,
     async generate({ system, user, maxTokens = 2048 }) {
-      const res = await fetch(`${baseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': version,
+      return withRetry(
+        async () => {
+          const res = await fetch(`${baseUrl}/v1/messages`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': version,
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: maxTokens,
+              system,
+              messages: [{ role: 'user', content: user }],
+            }),
+          })
+          if (!res.ok) {
+            const body = await res.text().catch(() => '')
+            throw new Error(`anthropic ${res.status}: ${body.slice(0, 300)}`)
+          }
+          const data = (await res.json()) as {
+            content?: Array<{ type: string; text?: string }>
+          }
+          return (data.content ?? [])
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text ?? '')
+            .join('')
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          system,
-          messages: [{ role: 'user', content: user }],
-        }),
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        throw new Error(`anthropic ${res.status}: ${body.slice(0, 300)}`)
-      }
-      const data = (await res.json()) as {
-        content?: Array<{ type: string; text?: string }>
-      }
-      const text = (data.content ?? [])
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text ?? '')
-        .join('')
-      return text
+        { label: 'anthropic-messages' },
+      )
     },
   }
 }

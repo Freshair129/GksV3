@@ -32,10 +32,7 @@ import {
   type Namespace,
 } from '../src/memory/index.js'
 import { recall, retain, reflect } from '../src/memory/api.js'
-import { createLogger } from '../src/lib/logger.js'
 import { truncate } from '../src/lib/text.js'
-
-const log = createLogger('cli:gks')
 
 interface GlobalFlags {
   root: string
@@ -391,8 +388,6 @@ Global flags
 Pass content/queries as positional arg or via stdin.
 `)
 }
-
-void log
 
 main().catch((err) => {
   console.error('gks:', (err as Error).message)

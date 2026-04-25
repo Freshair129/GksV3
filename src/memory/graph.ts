@@ -263,9 +263,12 @@ export class GraphStore {
     const visited = new Set<string>([seed])
     type Frame = { id: string; path: GraphEdge[]; hops: number }
     const queue: Frame[] = [{ id: seed, path: [], hops: 0 }]
+    // Head pointer instead of queue.shift() — avoids O(n) array re-indexing
+    // on every dequeue, so traversal stays O(V+E).
+    let head = 0
 
-    while (queue.length > 0 && results.length < limit) {
-      const frame = queue.shift()!
+    while (head < queue.length && results.length < limit) {
+      const frame = queue[head++]!
       if (frame.hops >= depth) continue
 
       const edgeIds =

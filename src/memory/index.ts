@@ -712,6 +712,13 @@ function snippetFrom(text: string, max: number): string {
   return clean.length <= max ? clean : clean.slice(0, max - 1) + '…'
 }
 
+/**
+ * Score boost added when a hit's metadata.status === 'stable'. Tunable: a
+ * higher value pushes promoted/canonical notes harder above raw vector hits.
+ * Picked empirically on the LoCoMo + LongMemEval fixtures.
+ */
+const STABLE_BOOST = 0.05
+
 /** Dedup by (path || id), rerank with optional stable-boost, cap to maxTotal. */
 function mergeAndRerank(
   hits: RetrievalHit[],
@@ -725,7 +732,7 @@ function mergeAndRerank(
   }
   const scored = [...byKey.values()].map((h) => {
     const status = (h.metadata?.['status'] as string | undefined) ?? undefined
-    const boost = opts.boostStable && status === 'stable' ? 0.05 : 0
+    const boost = opts.boostStable && status === 'stable' ? STABLE_BOOST : 0
     return { h, s: h.score + boost }
   })
   scored.sort((a, b) => b.s - a.s)

@@ -16,7 +16,6 @@
  * are surfaced via the existing logger.
  */
 
-import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { appendJsonl } from '../lib/jsonl.js'
@@ -106,7 +105,7 @@ export class AuditLog {
 
     if (!this.disableDisk) {
       try {
-        await mkdir(this.dir, { recursive: true })
+        // appendJsonl mkdirs the parent dir, so we don't pre-create here.
         await appendJsonl(this.filePath(stamped.t), stamped)
       } catch (err) {
         // Disk pressure / permissions / EROFS — surfaceable but never

@@ -45,7 +45,6 @@ export function wrapEmbedderWithCostTracker(
   tracker: CostTracker,
   attrs: Record<string, string> = {},
 ): Embedder {
-  const tag = `${inner.provider}:${inner.model}`
   return {
     provider: inner.provider,
     model: inner.model,
@@ -60,7 +59,6 @@ export function wrapEmbedderWithCostTracker(
         inputTokens: usageOrEstimate(inner, [text]),
         attrs,
       })
-      void tag
       return v
     },
     async embedBatch(texts: string[]) {

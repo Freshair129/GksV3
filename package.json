@@ -20,6 +20,9 @@
     "pg:up": "docker compose -f docker-compose.pg.yml up -d",
     "pg:down": "docker compose -f docker-compose.pg.yml down",
     "pg:reset": "docker compose -f docker-compose.pg.yml down -v && docker compose -f docker-compose.pg.yml up -d",
+    "rerank:up": "docker compose -f docker-compose.rerank.yml up -d",
+    "rerank:down": "docker compose -f docker-compose.rerank.yml down",
+    "rerank:logs": "docker compose -f docker-compose.rerank.yml logs -f",
     "quickstart": "tsx examples/quickstart.ts"
   },
   "dependencies": {

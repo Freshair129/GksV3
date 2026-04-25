@@ -1,0 +1,27 @@
+services:
+  rerank:
+    # Hugging Face Text Embeddings Inference — runs the BGE rerank-v2-m3
+    # cross-encoder. CPU image so this works on machines without an Nvidia
+    # GPU; for production-scale latency, switch to the -gpu image and add
+    #   deploy.resources.reservations.devices.driver: nvidia
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: gks-rerank
+    command:
+      - --model-id=BAAI/bge-reranker-v2-m3
+      - --revision=main
+      - --port=80
+      - --max-client-batch-size=64
+    ports:
+      - '8080:80'
+    volumes:
+      - gks_rerank_models:/data
+    healthcheck:
+      # TEI exposes /health on its REST port.
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:80/health || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  gks_rerank_models:

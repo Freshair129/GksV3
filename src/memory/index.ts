@@ -22,11 +22,13 @@ import type {
   EpisodicMemory,
   InboundArtifact,
   InboundReceipt,
+  Namespace,
   RetrievalHit,
   RetrievalOptions,
   RetrievalResult,
   TraceStep,
   VectorHit,
+  VectorMetadata,
 } from './types.js'
 
 import { AtomicLayer } from './gks.js'
@@ -104,6 +106,14 @@ export interface MemoryStoreOptions {
    * to the JSONL-backed VectorStore at <vectorDir>/<name>.jsonl.
    */
   vectorBackend?: VectorBackendFactory
+  /**
+   * Default namespace applied when retain() / retrieve() callers don't
+   * pass one. Empty `{}` means "global" — retrieve() returns docs from
+   * any namespace AND new docs are stamped with no namespace fields.
+   * For multi-tenant deployments, set { tenant_id: '...' } here per
+   * request-scoped MemoryStore instance.
+   */
+  defaultNamespace?: Namespace
 }
 
 export class MemoryStore {
@@ -117,6 +127,8 @@ export class MemoryStore {
   readonly vectorDir: string
   /** Absolute dir where session traces + manifests live. */
   readonly sessionDir: string
+  /** Default namespace applied when retain/retrieve callers don't pass one. */
+  readonly defaultNamespace: Namespace
 
   private readonly vectorScoreThreshold: number
   private readonly maxTotal: number
@@ -185,6 +197,7 @@ export class MemoryStore {
       : null
 
     this.vectorBackendFactory = opts.vectorBackend ?? null
+    this.defaultNamespace = opts.defaultNamespace ?? {}
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -314,6 +327,15 @@ export class MemoryStore {
     const topK = opts.topK ?? 5
     const sources = opts.sources ?? defaultSources(strategy, this.obsidian != null)
 
+    // Resolve effective namespace + filter mode.
+    //   crossNamespace=true  → no filter (admin / cross-tenant analytics)
+    //   namespace passed     → use that
+    //   else                 → fall back to defaultNamespace
+    const activeNamespace: Namespace = opts.crossNamespace
+      ? {}
+      : opts.namespace ?? this.defaultNamespace
+    const namespaceFilter = opts.crossNamespace ? undefined : namespaceAsFilter(activeNamespace)
+
     const tasks: Array<Promise<RetrievalHit[]>> = []
 
     if (sources.includes('atomic')) {
@@ -335,7 +357,7 @@ export class MemoryStore {
           const vectorHits = await store.search(query, {
             topK,
             ...(opts.scoreThreshold !== undefined ? { scoreThreshold: opts.scoreThreshold } : {}),
-            ...(opts.namespace ? { filter: opts.namespace } : {}),
+            ...(namespaceFilter ? { filter: namespaceFilter } : {}),
           })
           return vectorHits.map(vectorHitToRetrieval)
         })(),
@@ -349,7 +371,7 @@ export class MemoryStore {
           const hits = await store.search(query, {
             topK,
             ...(opts.scoreThreshold !== undefined ? { scoreThreshold: opts.scoreThreshold } : {}),
-            ...(opts.namespace ? { filter: opts.namespace } : {}),
+            ...(namespaceFilter ? { filter: namespaceFilter } : {}),
           })
           return hits.map(vectorHitToRetrieval)
         })(),
@@ -409,8 +431,13 @@ export class MemoryStore {
       'gks.hit_count': finalHits.length,
       'gks.candidate_count': candidates.length,
       'gks.took_ms': tookMs,
+      'gks.cross_namespace': !!opts.crossNamespace,
+      ...namespaceAsAttrs(activeNamespace, 'gks.ns'),
     })
-    recordHistogram(METRIC_NAMES.recallLatency, tookMs, { strategy })
+    recordHistogram(METRIC_NAMES.recallLatency, tookMs, {
+      strategy,
+      ...(activeNamespace.tenant_id ? { tenant_id: activeNamespace.tenant_id } : {}),
+    })
     incrementCounter(METRIC_NAMES.recallHits, finalHits.length, { strategy })
 
     return {
@@ -440,6 +467,43 @@ const ATOMIC_ID = /^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_\-]*$/
 
 function looksLikeAtomicId(s: string): boolean {
   return ATOMIC_ID.test(s.trim())
+}
+
+/**
+ * Convert a Namespace into a metadata-filter object: only includes the
+ * keys that are actually set, so an empty namespace produces no filter
+ * (returns undefined).
+ */
+function namespaceAsFilter(ns: Namespace): Partial<VectorMetadata> | undefined {
+  const out: Record<string, string> = {}
+  if (ns.tenant_id !== undefined) out['tenant_id'] = ns.tenant_id
+  if (ns.user_id !== undefined) out['user_id'] = ns.user_id
+  if (ns.session_id !== undefined) out['session_id'] = ns.session_id
+  if (ns.agent_id !== undefined) out['agent_id'] = ns.agent_id
+  return Object.keys(out).length > 0 ? (out as Partial<VectorMetadata>) : undefined
+}
+
+/** Stamp namespace fields onto a VectorMetadata-shaped object (only the set keys). */
+export function applyNamespace(
+  metadata: Partial<VectorMetadata>,
+  ns: Namespace,
+): Partial<VectorMetadata> {
+  return {
+    ...metadata,
+    ...(ns.tenant_id !== undefined ? { tenant_id: ns.tenant_id } : {}),
+    ...(ns.user_id !== undefined ? { user_id: ns.user_id } : {}),
+    ...(ns.session_id !== undefined ? { session_id: ns.session_id } : {}),
+    ...(ns.agent_id !== undefined ? { agent_id: ns.agent_id } : {}),
+  }
+}
+
+function namespaceAsAttrs(ns: Namespace, prefix: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (ns.tenant_id !== undefined) out[`${prefix}.tenant_id`] = ns.tenant_id
+  if (ns.user_id !== undefined) out[`${prefix}.user_id`] = ns.user_id
+  if (ns.session_id !== undefined) out[`${prefix}.session_id`] = ns.session_id
+  if (ns.agent_id !== undefined) out[`${prefix}.agent_id`] = ns.agent_id
+  return out
 }
 
 function defaultSources(

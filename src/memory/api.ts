@@ -14,14 +14,16 @@ import type {
   ConflictRecord,
   EpisodicMemory,
   InboundArtifact,
+  Namespace,
   RetainInput,
   RetainResult,
   RetrievalOptions,
   RetrievalResult,
   TraceStep,
+  VectorMetadata,
 } from './types.js'
 
-import type { MemoryStore } from './index.js'
+import { applyNamespace, type MemoryStore } from './index.js'
 import {
   Consolidator,
   type ConsolidationInput,
@@ -72,16 +74,23 @@ async function retainInner(
   // real providers.
   const vector = await embedder.embed(input.content)
 
+  // Resolve effective namespace: explicit > (legacy) sessionId > store default.
+  const effectiveNs = input.namespace ?? {
+    ...store.defaultNamespace,
+    ...(input.sessionId ? { session_id: input.sessionId } : {}),
+  }
+
   const { conflicts, toInvalidate } = await resolveConflicts(
     vectorStore,
     vector,
     input,
     validFrom,
+    effectiveNs,
   )
 
+  const baseMetadata = applyNamespace(input.metadata ?? {}, effectiveNs)
   const doc = await vectorStore.addWithVector(input.content, vector, {
-    ...(input.metadata ?? {}),
-    ...(input.sessionId ? { session_id: input.sessionId } : {}),
+    ...baseMetadata,
     valid_from: validFrom,
     valid_to: null,
     ...(toInvalidate.length > 0 ? { supersedes: toInvalidate[0] } : {}),
@@ -147,6 +156,7 @@ async function resolveConflicts(
   queryVector: number[],
   input: RetainInput,
   nowIso: string,
+  effectiveNs: Namespace,
 ): Promise<{ conflicts: ConflictRecord[]; toInvalidate: string[] }> {
   const conflicts: ConflictRecord[] = []
   const toInvalidate: string[] = []
@@ -154,10 +164,19 @@ async function resolveConflicts(
   const threshold = input.conflictThreshold ?? 0.92
   const newTextNorm = input.content.trim()
 
+  // Scope conflict-detection to the same namespace — tenant A's retain
+  // shouldn't supersede tenant B's docs.
+  const nsFilter: Partial<VectorMetadata> = {}
+  if (effectiveNs.tenant_id !== undefined) nsFilter.tenant_id = effectiveNs.tenant_id
+  if (effectiveNs.user_id !== undefined) nsFilter.user_id = effectiveNs.user_id
+  if (effectiveNs.session_id !== undefined) nsFilter.session_id = effectiveNs.session_id
+  if (effectiveNs.agent_id !== undefined) nsFilter.agent_id = effectiveNs.agent_id
+
   try {
     const hits = await vectorStore.search(queryVector, {
       topK: 5,
       scoreThreshold: Math.min(0.8, threshold - 0.05),
+      ...(Object.keys(nsFilter).length > 0 ? { filter: nsFilter } : {}),
     })
 
     for (const h of hits) {

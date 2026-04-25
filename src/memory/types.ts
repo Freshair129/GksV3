@@ -65,6 +65,7 @@ export interface VectorMetadata {
   tokens?: number
   hash?: string
   created_at?: string
+  tenant_id?: string
   user_id?: string
   session_id?: string
   agent_id?: string
@@ -154,15 +155,40 @@ export type RetrievalStrategy =
   | 'obsidian'
   | 'multi'
 
+/**
+ * Multi-tenancy partition key.
+ *
+ * Composite by design — different installations want isolation at
+ * different granularities. SaaS deployments lean on `tenant_id`; single-
+ * tenant agents typically scope by `agent_id` + `session_id`. None are
+ * mandatory; an empty namespace ({}) means "global / default tenant".
+ *
+ * The active namespace is enforced as a metadata filter on every
+ * retrieve() — cross-namespace reads require explicit
+ * `crossNamespace: true`.
+ */
+export interface Namespace {
+  tenant_id?: string
+  user_id?: string
+  session_id?: string
+  agent_id?: string
+}
+
 export interface RetrievalOptions {
   strategy?: RetrievalStrategy
   topK?: number
   scoreThreshold?: number
-  namespace?: {
-    user_id?: string
-    session_id?: string
-    agent_id?: string
-  }
+  /**
+   * Namespace filter. Defaults to the MemoryStore's `defaultNamespace`
+   * (which itself defaults to `{}`). Set fields constrain the result set
+   * to docs whose stamped namespace matches.
+   */
+  namespace?: Namespace
+  /**
+   * Bypass the namespace filter — return docs from any namespace. Use only
+   * for admin / migration / cross-tenant analytics paths.
+   */
+  crossNamespace?: boolean
   boostStable?: boolean
   sources?: Array<'atomic' | 'vector' | 'episodic' | 'obsidian'>
 }
@@ -190,7 +216,17 @@ export interface RetainInput {
   proposeInbound?: boolean
   inboundType?: AtomicType
   inboundPhase?: Phase
+  /**
+   * @deprecated Pass via `namespace.session_id` instead. Kept working for
+   * back-compat — sets metadata.session_id and namespace.session_id.
+   */
   sessionId?: string
+  /**
+   * Tenant / user / session / agent isolation key. If omitted, falls back
+   * to the MemoryStore's `defaultNamespace`. Stamped onto the doc's
+   * metadata so subsequent retrieve() calls in this namespace see it.
+   */
+  namespace?: Namespace
   /**
    * Bi-temporal conflict policy. Default 'auto':
    *   auto         → invalidate semantic near-duplicates whose content contradicts the new one

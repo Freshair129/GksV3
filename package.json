@@ -16,6 +16,10 @@
     "bench:longmemeval": "tsx benchmarks/longmemeval.ts",
     "bench:beam": "tsx benchmarks/beam.ts",
     "re-embed": "tsx scripts/msp/re-embed.ts",
+    "pg-migrate": "tsx scripts/msp/pg-migrate.ts",
+    "pg:up": "docker compose -f docker-compose.pg.yml up -d",
+    "pg:down": "docker compose -f docker-compose.pg.yml down",
+    "pg:reset": "docker compose -f docker-compose.pg.yml down -v && docker compose -f docker-compose.pg.yml up -d",
     "quickstart": "tsx examples/quickstart.ts"
   },
   "dependencies": {

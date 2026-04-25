@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: gks-pgvector
+    environment:
+      POSTGRES_USER: gks
+      POSTGRES_PASSWORD: gks
+      POSTGRES_DB: gks
+    ports:
+      - '5432:5432'
+    volumes:
+      - gks_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'gks', '-d', 'gks']
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    command:
+      # Tuning suitable for local development + integration tests on a
+      # ~4 CPU / 8 GB box. For real workloads override via your own compose
+      # file or a Postgres TUNED config.
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=20
+
+volumes:
+  gks_pgdata:

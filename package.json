@@ -1,21 +1,92 @@
 {
-  "name": "gks-v3",
+  "name": "@evaai/gks",
   "version": "3.5.0",
-  "description": "Genesis Knowledge System v3 — EVA Tri-Brain memory fabric (Phase 1 MVP)",
+  "description": "Genesis Knowledge System — a memory fabric for agentic AI built on the EVA Tri-Brain architecture. Four memory layers, bi-temporal versioning, multi-tenancy, OpenTelemetry, MCP server, and a CLI.",
   "type": "module",
-  "private": true,
-  "bin": {
-    "gks": "bin/gks.ts",
-    "gks-mcp-server": "bin/gks-mcp-server.ts"
+  "license": "MIT",
+  "author": "freshair129",
+  "homepage": "https://github.com/freshair129/gksv3#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freshair129/gksv3.git"
   },
+  "bugs": {
+    "url": "https://github.com/freshair129/gksv3/issues"
+  },
+  "keywords": [
+    "memory",
+    "agent",
+    "rag",
+    "vector",
+    "pgvector",
+    "hnsw",
+    "obsidian",
+    "mcp",
+    "claude",
+    "opentelemetry",
+    "bi-temporal",
+    "multi-tenant",
+    "knowledge-graph"
+  ],
+  "main": "./dist/memory/index.js",
+  "types": "./dist/memory/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "import": "./dist/memory/index.js"
+    },
+    "./mcp-server": {
+      "types": "./dist/mcp-server/index.d.ts",
+      "import": "./dist/mcp-server/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/lib/telemetry.d.ts",
+      "import": "./dist/lib/telemetry.js"
+    },
+    "./telemetry-setup": {
+      "types": "./dist/lib/telemetry-setup.d.ts",
+      "import": "./dist/lib/telemetry-setup.js"
+    },
+    "./retry": {
+      "types": "./dist/lib/retry.d.ts",
+      "import": "./dist/lib/retry.js"
+    },
+    "./circuit-breaker": {
+      "types": "./dist/lib/circuit-breaker.d.ts",
+      "import": "./dist/lib/circuit-breaker.js"
+    },
+    "./cost": {
+      "types": "./dist/lib/cost-tracker.d.ts",
+      "import": "./dist/lib/cost-tracker.js"
+    },
+    "./schema-version": {
+      "types": "./dist/lib/schema-version.d.ts",
+      "import": "./dist/lib/schema-version.js"
+    }
+  },
+  "bin": {
+    "gks": "./dist/bin/gks.js",
+    "gks-mcp-server": "./dist/bin/gks-mcp-server.js"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "bench:locomo": "tsx benchmarks/locomo.ts",
     "bench:longmemeval": "tsx benchmarks/longmemeval.ts",
     "bench:beam": "tsx benchmarks/beam.ts",
@@ -30,6 +101,9 @@
     "rerank:down": "docker compose -f docker-compose.rerank.yml down",
     "rerank:logs": "docker compose -f docker-compose.rerank.yml logs -f",
     "quickstart": "tsx examples/quickstart.ts"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

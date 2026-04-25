@@ -4,6 +4,9 @@
   "description": "Genesis Knowledge System v3 — EVA Tri-Brain memory fabric (Phase 1 MVP)",
   "type": "module",
   "private": true,
+  "bin": {
+    "gks-mcp-server": "bin/gks-mcp-server.ts"
+  },
   "engines": {
     "node": ">=20"
   },

@@ -46,6 +46,7 @@ import { fileExists, forEachJsonl } from '../src/lib/jsonl.js'
 import { isRecord, pickArray } from '../src/lib/guards.js'
 import { createLogger } from '../src/lib/logger.js'
 import {
+  createBenchBackend,
   parseBaseBenchArgs,
   percentile,
   prepareWorkDir,
@@ -97,12 +98,24 @@ async function main(): Promise<void> {
   const embedder = await createEmbedder({
     ...(opts.provider !== 'auto' ? { forceProvider: opts.provider } : {}),
   })
+
+  const benchBackend = await createBenchBackend(opts)
+  log.info('backend configured', { backend: benchBackend.description })
+
+  const rerankerOpt =
+    opts.reranker === 'off'
+      ? { enabled: false }
+      : opts.rerank
+        ? opts.rerank
+        : { backend: 'lexical' as const }
+
   const store = new MemoryStore({
     root: opts.workDir,
     embedder,
     atomicIndexPath: join(opts.workDir, 'gks', '00_index', 'atomic_index.jsonl'),
     vectorScoreThreshold: opts.scoreThreshold,
-    reranker: opts.reranker === 'off' ? { enabled: false } : { backend: 'lexical' },
+    reranker: rerankerOpt,
+    ...(benchBackend.factory ? { vectorBackend: benchBackend.factory } : {}),
   })
   await store.init()
 
@@ -180,6 +193,8 @@ async function main(): Promise<void> {
   }
 
   printReport('BEAM Benchmark Report', report)
+
+  await benchBackend.dispose()
 
   // Non-zero exit if a target was explicitly missed (useful for CI gating).
   if (process.env['BEAM_STRICT'] === '1') {

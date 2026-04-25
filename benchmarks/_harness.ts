@@ -13,7 +13,19 @@
 
 import { parseArgs, type ParseArgsConfig } from 'node:util'
 import { mkdir, rm } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
+
+import {
+  createHnswBackend,
+  createPgvectorBackend,
+  type Embedder,
+  type RerankerOptions,
+  type VectorBackend,
+  type VectorBackendFactory,
+} from '../src/memory/index.js'
+import { createLogger } from '../src/lib/logger.js'
+
+const log = createLogger('bench:harness')
 
 // ─── metrics ───────────────────────────────────────────────────────────────
 
@@ -36,6 +48,7 @@ export function percentile(values: number[], p: number): number {
 // ─── CLI shared options ────────────────────────────────────────────────────
 
 export type Provider = 'auto' | 'ollama' | 'openai' | 'mock'
+export type BackendName = 'jsonl' | 'hnsw' | 'pgvector'
 
 /**
  * Shape every runner parses: dataset path, workdir, top-k, threshold, limit,
@@ -50,6 +63,12 @@ export const BENCH_BASE_ARG_OPTIONS = {
   limit: { type: 'string' },
   provider: { type: 'string' },
   fresh: { type: 'boolean' },
+  backend: { type: 'string' },
+  'rerank-endpoint': { type: 'string' },
+  'rerank-api-key': { type: 'string' },
+  'pg-url': { type: 'string' },
+  'pg-table': { type: 'string' },
+  'hnsw-ef-search': { type: 'string' },
 } as const satisfies ParseArgsConfig['options']
 
 export interface BaseBenchOptions {
@@ -60,6 +79,11 @@ export interface BaseBenchOptions {
   limit?: number
   provider: Provider
   fresh: boolean
+  backend: BackendName
+  rerank?: RerankerOptions
+  pgUrl?: string
+  pgTable?: string
+  hnswEfSearch?: number
 }
 
 /**
@@ -105,6 +129,34 @@ export function parseBaseBenchArgs(
   const provider = (raw['provider'] as Provider | undefined) ?? 'auto'
   const fresh = raw['fresh'] !== false
 
+  const backendRaw = (raw['backend'] as string | undefined) ?? process.env['GKS_BENCH_BACKEND'] ?? 'jsonl'
+  if (backendRaw !== 'jsonl' && backendRaw !== 'hnsw' && backendRaw !== 'pgvector') {
+    throw new Error(`bench: invalid --backend='${backendRaw}' (expected: jsonl | hnsw | pgvector)`)
+  }
+  const backend = backendRaw as BackendName
+
+  const rerankEndpoint =
+    (raw['rerank-endpoint'] as string | undefined) ?? process.env['GKS_RERANK_ENDPOINT']
+  const rerankApiKey =
+    (raw['rerank-api-key'] as string | undefined) ?? process.env['GKS_RERANK_API_KEY']
+  const rerank: RerankerOptions | undefined = rerankEndpoint
+    ? {
+        backend: 'http',
+        endpoint: rerankEndpoint,
+        ...(rerankApiKey ? { apiKey: rerankApiKey } : {}),
+      }
+    : undefined
+
+  const pgUrl = (raw['pg-url'] as string | undefined) ?? process.env['DATABASE_URL']
+  const pgTable = (raw['pg-table'] as string | undefined) ?? process.env['GKS_VECTOR_TABLE']
+  const hnswEfSearch = raw['hnsw-ef-search'] ? Number(raw['hnsw-ef-search']) : undefined
+
+  if (backend === 'pgvector' && !pgUrl) {
+    throw new Error(
+      'bench: --backend=pgvector requires --pg-url=... or DATABASE_URL env var',
+    )
+  }
+
   return {
     base: {
       datasetPath,
@@ -114,10 +166,87 @@ export function parseBaseBenchArgs(
       ...(limit !== undefined ? { limit } : {}),
       provider,
       fresh,
+      backend,
+      ...(rerank ? { rerank } : {}),
+      ...(pgUrl ? { pgUrl } : {}),
+      ...(pgTable ? { pgTable } : {}),
+      ...(hnswEfSearch !== undefined ? { hnswEfSearch } : {}),
     },
     values: raw,
   }
 }
+
+// ─── backend factory ───────────────────────────────────────────────────────
+
+/**
+ * Build a VectorBackendFactory + an optional cleanup hook for the runner.
+ *
+ *   - jsonl    : returns null → MemoryStore uses its built-in JSONL default.
+ *   - hnsw     : returns a factory that creates one HnswBackend per name,
+ *                rooted at <workDir>/.brain/.../vector/<name>.
+ *   - pgvector : returns a factory backed by a single shared pg.Pool. The
+ *                pool is closed by the returned `dispose()` callback.
+ *
+ * Runners pass the factory into `new MemoryStore({ vectorBackend, ... })`.
+ */
+export interface BenchBackend {
+  factory: VectorBackendFactory | null
+  dispose: () => Promise<void>
+  description: string
+}
+
+export async function createBenchBackend(opts: BaseBenchOptions): Promise<BenchBackend> {
+  if (opts.backend === 'jsonl') {
+    return {
+      factory: null,
+      dispose: async () => {},
+      description: 'jsonl (file-based default)',
+    }
+  }
+
+  if (opts.backend === 'hnsw') {
+    const factory: VectorBackendFactory = (name: string, embedder: Embedder) =>
+      createHnswBackend({
+        basePath: join(opts.workDir, '.brain', 'msp', 'projects', 'evaAI', 'vector', name),
+        embedder,
+        name,
+        ...(opts.hnswEfSearch !== undefined ? { efSearch: opts.hnswEfSearch } : {}),
+      })
+    return {
+      factory,
+      dispose: async () => {},
+      description: `hnsw${opts.hnswEfSearch !== undefined ? ` ef_search=${opts.hnswEfSearch}` : ''}`,
+    }
+  }
+
+  // pgvector — lazy-import pg so the JSONL/HNSW paths don't pull in pg at startup.
+  const pg = (await import('pg')).default
+  const pool = new pg.Pool({ connectionString: opts.pgUrl })
+
+  const factory: VectorBackendFactory = (name: string, embedder: Embedder): VectorBackend => {
+    const backendOpts = {
+      pool,
+      embedder,
+      name,
+      ...(opts.pgTable ? { table: opts.pgTable } : {}),
+    }
+    return createPgvectorBackend(backendOpts)
+  }
+
+  return {
+    factory,
+    dispose: async () => {
+      await pool.end()
+    },
+    description: `pgvector @ ${maskPgUrl(opts.pgUrl!)}${opts.pgTable ? ` (table=${opts.pgTable})` : ''}`,
+  }
+}
+
+function maskPgUrl(url: string): string {
+  return url.replace(/:[^@/]+@/, ':***@')
+}
+
+void log // keep the logger live for future use without churning imports
 
 // ─── workspace ─────────────────────────────────────────────────────────────
 

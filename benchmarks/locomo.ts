@@ -50,6 +50,7 @@ import { fileExists } from '../src/lib/jsonl.js'
 import { containsSnippet, normalizeText } from '../src/lib/text.js'
 import { isPresent, isRecord, pickArray } from '../src/lib/guards.js'
 import {
+  createBenchBackend,
   parseBaseBenchArgs,
   prepareWorkDir,
   printReport,
@@ -113,12 +114,17 @@ async function main(): Promise<void> {
     ...(opts.provider !== 'auto' ? { forceProvider: opts.provider } : {}),
   })
 
+  const benchBackend = await createBenchBackend(opts)
+  log.info('backend configured', { backend: benchBackend.description })
+
   const store = new MemoryStore({
     root: opts.workDir,
     embedder,
     // Point atomic index at a file that won't exist — LoCoMo is pure vector.
     atomicIndexPath: join(opts.workDir, 'gks', '00_index', 'atomic_index.jsonl'),
     vectorScoreThreshold: opts.scoreThreshold,
+    ...(benchBackend.factory ? { vectorBackend: benchBackend.factory } : {}),
+    ...(opts.rerank ? { reranker: opts.rerank } : {}),
   })
   await store.init()
 
@@ -170,6 +176,8 @@ async function main(): Promise<void> {
   }
 
   printReport('LoCoMo Benchmark Report', report)
+
+  await benchBackend.dispose()
 }
 
 async function runConversation(

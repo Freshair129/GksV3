@@ -45,6 +45,7 @@ import { fileExists } from '../src/lib/jsonl.js'
 import { containsSnippet, normalizeText } from '../src/lib/text.js'
 import { isPresent, isRecord, pickArray, toStringArray } from '../src/lib/guards.js'
 import {
+  createBenchBackend,
   parseBaseBenchArgs,
   prepareWorkDir,
   printReport,
@@ -111,12 +112,27 @@ async function main(): Promise<void> {
     ...(opts.provider !== 'auto' ? { forceProvider: opts.provider } : {}),
   })
 
+  const benchBackend = await createBenchBackend(opts)
+  log.info('backend configured', { backend: benchBackend.description })
+
+  // Reranker selection precedence:
+  //   1. --rerank=off      → disabled
+  //   2. --rerank-endpoint → HTTP backend (cross-encoder server)
+  //   3. otherwise         → lexical BM25 default
+  const rerankerOpt =
+    opts.reranker === 'off'
+      ? { enabled: false }
+      : opts.rerank
+        ? opts.rerank
+        : { backend: 'lexical' as const }
+
   const store = new MemoryStore({
     root: opts.workDir,
     embedder,
     atomicIndexPath: join(opts.workDir, 'gks', '00_index', 'atomic_index.jsonl'),
     vectorScoreThreshold: opts.scoreThreshold,
-    reranker: opts.reranker === 'off' ? { enabled: false } : { backend: 'lexical' },
+    reranker: rerankerOpt,
+    ...(benchBackend.factory ? { vectorBackend: benchBackend.factory } : {}),
   })
   await store.init()
 
@@ -167,6 +183,8 @@ async function main(): Promise<void> {
   }
 
   printReport('LongMemEval Benchmark Report', report)
+
+  await benchBackend.dispose()
 }
 
 async function runItem(

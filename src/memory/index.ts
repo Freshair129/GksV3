@@ -498,6 +498,8 @@ function mergeAndRerank(
 export { AtomicLayer } from './gks.js'
 export { VectorStore } from './vector/index.js'
 export type { VectorBackend, VectorBackendFactory, VectorBackendAddItem } from './vector/backend.js'
+export { createPgvectorBackend, vectorToPg, pgToVector } from './vector/pgvector.js'
+export type { PgvectorBackendOptions } from './vector/pgvector.js'
 export { EpisodicLayer } from './episodic.js'
 export { InboundQueue } from './inbound.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'

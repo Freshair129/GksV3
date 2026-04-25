@@ -19,10 +19,14 @@
     "quickstart": "tsx examples/quickstart.ts"
   },
   "dependencies": {
+    "pg": "^8.20.0",
+    "pg-copy-streams": "^7.0.0",
     "yaml": "^2.5.1"
   },
   "devDependencies": {
     "@types/node": "^22.5.0",
+    "@types/pg": "^8.20.0",
+    "@types/pg-copy-streams": "^1.2.5",
     "tsx": "^4.19.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.1"

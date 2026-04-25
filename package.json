@@ -23,6 +23,7 @@
     "quickstart": "tsx examples/quickstart.ts"
   },
   "dependencies": {
+    "hnswlib-node": "^3.0.0",
     "pg": "^8.20.0",
     "pg-copy-streams": "^7.0.0",
     "yaml": "^2.5.1"

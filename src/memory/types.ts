@@ -89,6 +89,17 @@ export interface VectorManifest {
   doc_count: number
   last_updated: string
   file_hashes: Record<string, string>
+  /**
+   * Schema version of the on-disk JSONL store. Bump on incompatible
+   * format changes (renamed required field, changed serialization).
+   * Older stores without this field are treated as v1 for back-compat.
+   *
+   * Versioning policy (semver-like):
+   *   major bump → load() refuses; user must run `npm run gks-migrate`
+   *   minor bump → load() warns but proceeds (new optional fields)
+   *   patch bump → silent (doc-only / typo fixes)
+   */
+  schema_version?: string
 }
 
 export interface VectorSearchOptions {

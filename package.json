@@ -18,6 +18,7 @@
     "bench:sweep": "tsx scripts/bench/sweep.ts",
     "re-embed": "tsx scripts/msp/re-embed.ts",
     "pg-migrate": "tsx scripts/msp/pg-migrate.ts",
+    "gks-migrate": "tsx scripts/msp/gks-migrate.ts",
     "pg:up": "docker compose -f docker-compose.pg.yml up -d",
     "pg:down": "docker compose -f docker-compose.pg.yml down",
     "pg:reset": "docker compose -f docker-compose.pg.yml down -v && docker compose -f docker-compose.pg.yml up -d",

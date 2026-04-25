@@ -33,6 +33,10 @@ import {
 } from './manifest.js'
 import type { Embedder } from './embedder.js'
 import { createLogger } from '../../lib/logger.js'
+import {
+  CURRENT_SCHEMA_VERSION,
+  enforceSchemaCompatibility,
+} from '../../lib/schema-version.js'
 
 const log = createLogger('vector:store')
 
@@ -92,7 +96,18 @@ export class VectorStore implements VectorBackend {
 
     const onDisk = await readManifest(this.storeDir)
     if (onDisk) {
-      this.manifest = onDisk
+      // Schema version check — throws on incompatible major (or
+      // newer-than-runtime) so we never silently corrupt data; logs on
+      // minor / patch upgrades.
+      const cmp = enforceSchemaCompatibility(onDisk.schema_version)
+      if (cmp.kind === 'minor_upgrade' || cmp.kind === 'patch_upgrade') {
+        log.info('vector store schema upgrade applied on load', {
+          store: this.name,
+          from: cmp.from,
+          to: cmp.to,
+        })
+      }
+      this.manifest = { ...onDisk, schema_version: CURRENT_SCHEMA_VERSION }
       if (!manifestCompatible(onDisk, this.embedder.model, this.embedder.dimension)) {
         log.warn('vector store manifest incompatible with current embedder', {
           store: this.name,
@@ -366,6 +381,7 @@ export class VectorStore implements VectorBackend {
       dimension: this.embedder.dimension,
       doc_count: this.docs.length,
       last_updated: new Date().toISOString(),
+      schema_version: CURRENT_SCHEMA_VERSION,
     }
     await writeManifest(this.storeDir, this.manifest)
   }

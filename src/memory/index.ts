@@ -741,6 +741,13 @@ export type {
 
 export { AuditLog } from './audit.js'
 export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'
+export {
+  CURRENT_SCHEMA_VERSION,
+  SchemaVersionMismatchError,
+  checkSchemaCompatibility,
+  enforceSchemaCompatibility,
+} from '../lib/schema-version.js'
+export type { Compatibility as SchemaCompatibility } from '../lib/schema-version.js'
 export { CostTracker, DEFAULT_PRICING, estimateTokens as estimateCostTokens } from '../lib/cost-tracker.js'
 export type {
   CostTrackerOptions,

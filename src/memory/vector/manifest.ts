@@ -7,6 +7,7 @@
 import { access, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { VectorManifest } from '../types.js'
+import { CURRENT_SCHEMA_VERSION } from '../../lib/schema-version.js'
 import { readJson, writeJson } from '../../lib/jsonl.js'
 
 export const MANIFEST_FILENAME = '_manifest.json'
@@ -35,6 +36,7 @@ export function emptyManifest(model: string, dimension: number): VectorManifest 
     doc_count: 0,
     last_updated: new Date().toISOString(),
     file_hashes: {},
+    schema_version: CURRENT_SCHEMA_VERSION,
   }
 }
 

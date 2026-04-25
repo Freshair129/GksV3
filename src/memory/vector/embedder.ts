@@ -23,8 +23,68 @@ import {
   type CircuitBreakerOptions,
 } from '../../lib/circuit-breaker.js'
 import { METRIC_NAMES, recordHistogram } from '../../lib/telemetry.js'
+import type { CostTracker } from '../../lib/cost-tracker.js'
+import { estimateTokens } from '../../lib/pricing.js'
 
 const log = createLogger('vector:embedder')
+
+/**
+ * Wrap an Embedder so each call also records usage to a CostTracker.
+ * MemoryStore applies this wrapper when a tracker is configured. Keeps
+ * the public Embedder interface untouched and avoids module-scoped state
+ * (so multi-tenant deployments with one tracker per request stay safe).
+ *
+ * Token accounting policy:
+ *   - openai: pulls usage from response — populated by openaiEmbedder
+ *     via the closure variable `lastUsageTokens` it sets per call.
+ *   - ollama / mock: no usage in response → estimate via heuristic
+ *     (chars / 3.5).
+ */
+export function wrapEmbedderWithCostTracker(
+  inner: Embedder,
+  tracker: CostTracker,
+  attrs: Record<string, string> = {},
+): Embedder {
+  const tag = `${inner.provider}:${inner.model}`
+  return {
+    provider: inner.provider,
+    model: inner.model,
+    get dimension() {
+      return inner.dimension
+    },
+    async embed(text: string) {
+      const v = await inner.embed(text)
+      tracker.record({
+        provider: inner.provider,
+        model: inner.model,
+        inputTokens: usageOrEstimate(inner, [text]),
+        attrs,
+      })
+      void tag
+      return v
+    },
+    async embedBatch(texts: string[]) {
+      const vectors = await inner.embedBatch(texts)
+      tracker.record({
+        provider: inner.provider,
+        model: inner.model,
+        inputTokens: usageOrEstimate(inner, texts),
+        attrs,
+      })
+      return vectors
+    },
+  }
+}
+
+function usageOrEstimate(embedder: Embedder, texts: string[]): number {
+  const reported = (embedder as { _lastUsageTokens?: number })._lastUsageTokens
+  if (typeof reported === 'number' && reported > 0) {
+    // Reset after use so the next call doesn't double-count.
+    ;(embedder as { _lastUsageTokens?: number })._lastUsageTokens = 0
+    return reported
+  }
+  return estimateTokens(texts)
+}
 
 export interface EmbedderInfo {
   provider: 'ollama' | 'openai' | 'mock'
@@ -168,6 +228,9 @@ function openaiEmbedder(opts: EmbedderOptions): Embedder {
   const baseUrl = opts.openaiBaseUrl ?? process.env['OPENAI_BASE_URL'] ?? DEFAULT_OPENAI_URL
   const model = opts.openaiModel ?? process.env['OPENAI_EMBED_MODEL'] ?? DEFAULT_OPENAI_MODEL
   let dimension = DEFAULT_OPENAI_DIM
+  // Mutable side-channel read by wrapEmbedderWithCostTracker after each
+  // call. Set from the API's `usage.total_tokens`; reset to 0 after read.
+  const usageBox: { _lastUsageTokens?: number } = {}
 
   const breaker = makeBreaker(opts, 'openai')
   const maxAttempts = opts.retryMaxAttempts ?? 3
@@ -192,6 +255,12 @@ function openaiEmbedder(opts: EmbedderOptions): Embedder {
             }
             const data = (await res.json()) as {
               data: Array<{ embedding: number[]; index: number }>
+              usage?: { total_tokens?: number; prompt_tokens?: number }
+            }
+            if (data.usage?.total_tokens != null) {
+              usageBox._lastUsageTokens = data.usage.total_tokens
+            } else if (data.usage?.prompt_tokens != null) {
+              usageBox._lastUsageTokens = data.usage.prompt_tokens
             }
             // Sort by returned index to be defensive against reordering.
             const sorted = [...data.data].sort((a, b) => a.index - b.index)
@@ -204,7 +273,7 @@ function openaiEmbedder(opts: EmbedderOptions): Embedder {
     )
   }
 
-  return {
+  const out: Embedder & { _lastUsageTokens?: number } = {
     provider: 'openai',
     model,
     get dimension() {
@@ -216,7 +285,14 @@ function openaiEmbedder(opts: EmbedderOptions): Embedder {
       return v
     },
     embedBatch: embedMany,
-  } as Embedder
+    get _lastUsageTokens() {
+      return usageBox._lastUsageTokens
+    },
+    set _lastUsageTokens(v: number | undefined) {
+      usageBox._lastUsageTokens = v
+    },
+  } as Embedder & { _lastUsageTokens?: number }
+  return out
 }
 
 // ───────────────────────────────────────────────────────── mock

@@ -24,6 +24,7 @@ import type {
 import type { InboundArtifact, Phase, TraceStep } from './types.js'
 import { isPresent, isRecord, toStringArray } from '../lib/guards.js'
 import { withRetry } from '../lib/retry.js'
+import type { CostTracker } from '../lib/cost-tracker.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('consolidator:llm')
@@ -50,6 +51,14 @@ export interface AnthropicClientOptions {
    * as a version mismatch rather than mysterious 400s.
    */
   version?: string
+  /**
+   * Optional CostTracker to record token usage from each Messages API
+   * response. Anthropic returns `usage.{input_tokens, output_tokens}`
+   * natively — no estimation needed.
+   */
+  costTracker?: CostTracker
+  /** Extra labels added to cost records (tenant_id, session_id, ...). */
+  costAttrs?: Record<string, string>
 }
 
 export function createAnthropicClient(opts: AnthropicClientOptions = {}): LlmClient {
@@ -91,6 +100,16 @@ export function createAnthropicClient(opts: AnthropicClientOptions = {}): LlmCli
           }
           const data = (await res.json()) as {
             content?: Array<{ type: string; text?: string }>
+            usage?: { input_tokens?: number; output_tokens?: number }
+          }
+          if (opts.costTracker && data.usage) {
+            opts.costTracker.record({
+              provider: 'anthropic',
+              model,
+              inputTokens: data.usage.input_tokens ?? 0,
+              outputTokens: data.usage.output_tokens ?? 0,
+              ...(opts.costAttrs ? { attrs: opts.costAttrs } : {}),
+            })
           }
           return (data.content ?? [])
             .filter((b) => b.type === 'text')

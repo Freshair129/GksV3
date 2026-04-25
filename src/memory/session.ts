@@ -203,6 +203,10 @@ export async function endSession(
   const sessionDir = opts.sessionDir ?? store.sessionDir
   const sessionFilePath = join(sessionDir, `${session.id}.session.json`)
   const existing = await readJsonSafe<Record<string, unknown>>(sessionFilePath)
+
+  // Snapshot cost / token usage for the session, if a tracker is configured.
+  const costSummary = store.costTracker?.summary()
+
   const merged = {
     ...(existing ?? {}),
     ...session,
@@ -212,6 +216,13 @@ export async function endSession(
     consolidation_triggered: triggered,
     proposals: reflectResult?.proposals.length ?? 0,
     episodic_path: reflectResult?.episodicPath,
+    ...(costSummary
+      ? {
+          tokens_total: costSummary.total.input_tokens + costSummary.total.output_tokens,
+          cost_usd: costSummary.total.usd,
+          cost_breakdown: costSummary.byModel,
+        }
+      : {}),
   }
   await writeJson(sessionFilePath, merged)
 

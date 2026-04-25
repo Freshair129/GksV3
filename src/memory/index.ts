@@ -38,7 +38,13 @@ import type {
   VectorBackend,
   VectorBackendFactory,
 } from './vector/backend.js'
-import { createEmbedder, type Embedder, type EmbedderOptions } from './vector/embedder.js'
+import {
+  createEmbedder,
+  wrapEmbedderWithCostTracker,
+  type Embedder,
+  type EmbedderOptions,
+} from './vector/embedder.js'
+import { CostTracker, type CostTrackerOptions } from '../lib/cost-tracker.js'
 import { EpisodicLayer } from './episodic.js'
 import { InboundQueue } from './inbound.js'
 import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
@@ -122,6 +128,13 @@ export interface MemoryStoreOptions {
    * but NOT for production.
    */
   audit?: Partial<AuditLogOptions> | false
+  /**
+   * Cost / token tracker. Pass `{}` to enable with the default pricing
+   * table. Set to `false` to disable. When enabled, each retain / recall
+   * / reflect call's embedder + LLM usage gets accumulated; endSession
+   * flushes the snapshot into session.json.
+   */
+  cost?: CostTrackerOptions | false
 }
 
 export class MemoryStore {
@@ -139,6 +152,8 @@ export class MemoryStore {
   readonly defaultNamespace: Namespace
   /** Append-only audit log. Null when audit:false was passed. */
   readonly audit: AuditLog | null
+  /** Cost / token tracker. Null when cost:false was passed. */
+  readonly costTracker: CostTracker | null
 
   private readonly vectorScoreThreshold: number
   private readonly maxTotal: number
@@ -224,6 +239,8 @@ export class MemoryStore {
           : {}),
       })
     }
+
+    this.costTracker = opts.cost === false ? null : new CostTracker(opts.cost ?? {})
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -239,15 +256,21 @@ export class MemoryStore {
 
   async embedder(): Promise<Embedder> {
     if (this._embedder) return this._embedder
-    if (this.preBuiltEmbedder) {
-      this._embedder = this.preBuiltEmbedder
-      return this._embedder
+    const raw = this.preBuiltEmbedder ?? (await createEmbedder(this.embedderOptions ?? {}))
+    if (this.costTracker) {
+      const tenantAttrs: Record<string, string> = {}
+      if (this.defaultNamespace.tenant_id) {
+        tenantAttrs['tenant_id'] = this.defaultNamespace.tenant_id
+      }
+      this._embedder = wrapEmbedderWithCostTracker(raw, this.costTracker, tenantAttrs)
+    } else {
+      this._embedder = raw
     }
-    this._embedder = await createEmbedder(this.embedderOptions ?? {})
     log.info('embedder ready', {
       provider: this._embedder.provider,
       model: this._embedder.model,
       dim: this._embedder.dimension,
+      cost_tracker: this.costTracker !== null,
     })
     return this._embedder
   }
@@ -718,6 +741,15 @@ export type {
 
 export { AuditLog } from './audit.js'
 export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'
+export { CostTracker, DEFAULT_PRICING, estimateTokens as estimateCostTokens } from '../lib/cost-tracker.js'
+export type {
+  CostTrackerOptions,
+  CostRecord,
+  CostSummary,
+  ProviderTotal,
+  ModelPricing,
+  PricingKey,
+} from '../lib/cost-tracker.js'
 
 export { GraphStore } from './graph.js'
 export type {

@@ -16,3 +16,5 @@ coverage/
 
 # benchmarks cache
 benchmarks/.cache/
+benchmarks/reports/
+benchmarks/.cache/

@@ -523,6 +523,8 @@ export {
   wikilinkToPath,
   extractWikilinks,
 } from './obsidian-mcp.js'
+export { createMCPObsidianAdapter } from './obsidian-mcp-stdio.js'
+export type { MCPObsidianOptions, MCPClientLike } from './obsidian-mcp-stdio.js'
 export { startSession, endSession } from './session.js'
 export type {
   SessionMetadata,

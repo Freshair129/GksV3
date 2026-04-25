@@ -26,6 +26,7 @@
     "quickstart": "tsx examples/quickstart.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "hnswlib-node": "^3.0.0",
     "pg": "^8.20.0",
     "pg-copy-streams": "^7.0.0",

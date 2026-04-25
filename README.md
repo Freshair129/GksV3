@@ -117,6 +117,49 @@ Six tools exposed: `gks_retain`, `gks_recall`, `gks_lookup`,
 `gks_recall_cross_namespace` (gated). See
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#layer-dependency).
 
+### Pairing with a code-structure layer (e.g. GitNexus)
+
+GKS is the **semantic / temporal memory** layer (atomic + vector +
+episodic + obsidian). It deliberately does **not** parse source code into
+ASTs or call graphs — that's a complementary concern best served by a
+dedicated tool such as [GitNexus](https://github.com/nxpatterns/gitnexus),
+which indexes a repo into a knowledge graph (functions, imports, call
+chains, blast-radius) and exposes its own MCP tools (`query`, `impact`,
+`detect_changes`, …).
+
+Run them side-by-side — Claude Code merges the tool surfaces and an agent
+gets both kinds of context in one prompt:
+
+```jsonc
+// ~/.config/claude/mcp.json
+{
+  "mcpServers": {
+    "gks": {
+      "command": "npx",
+      "args": ["gks-mcp-server", "--root=/path/to/data", "--tenant=alice"]
+    },
+    "gitnexus": {
+      "command": "npx",
+      "args": ["-y", "gitnexus@latest", "mcp"]
+    }
+  }
+}
+```
+
+Recommended split:
+
+| Question                                     | Tool         |
+|----------------------------------------------|--------------|
+| "What did we decide about X last week?"      | `gks_recall` |
+| "Show me ADR-0007 verbatim."                 | `gks_lookup` |
+| "What breaks if I refactor `parseTrace()`?"  | `impact`     |
+| "Who calls `escapeCopyField`?"               | `query`      |
+| "Map this PR's diff to affected processes."  | `detect_changes` |
+
+If / when there's demand to fuse the two — feeding GitNexus call-edges
+into GKS's `GraphBackend` so atomic notes carry first-class blast-radius
+metadata — see option 3 in the integration notes (not yet built).
+
 ## Backends
 
 Mix and match:

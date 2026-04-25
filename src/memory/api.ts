@@ -114,6 +114,7 @@ async function retainInner(
       body: input.content,
       ...(input.sessionId ? { source_session: input.sessionId } : {}),
       confidence: 0.5,
+      ...(Object.keys(effectiveNs).length > 0 ? { namespace: effectiveNs } : {}),
     }
     const receipt = await store.proposeInbound(proposed)
     inboundPath = receipt.path

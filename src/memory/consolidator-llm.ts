@@ -27,6 +27,7 @@ import { isPresent, isRecord, toStringArray } from '../lib/guards.js'
 import { withRetry } from '../lib/retry.js'
 import type { CostTracker } from '../lib/cost-tracker.js'
 import { createLogger } from '../lib/logger.js'
+import { redactSecrets, truncate } from '../lib/text.js'
 
 const log = createLogger('consolidator:llm')
 
@@ -97,7 +98,7 @@ export function createAnthropicClient(opts: AnthropicClientOptions = {}): LlmCli
           })
           if (!res.ok) {
             const body = await res.text().catch(() => '')
-            throw new Error(`anthropic ${res.status}: ${body.slice(0, 300)}`)
+            throw new Error(`anthropic ${res.status}: ${truncate(redactSecrets(body), 300)}`)
           }
           const data = (await res.json()) as {
             content?: Array<{ type: string; text?: string }>
@@ -246,7 +247,16 @@ function buildUserPrompt(input: ConsolidationInput, maxMessages: number): string
 
 function formatStep(step: TraceStep): string {
   const who = step.kind === 'user' ? 'USER' : step.kind === 'agent' ? 'AGENT' : step.kind.toUpperCase()
-  return `[${who}] ${step.content}`
+  // Neutralize attempts by user content to spoof a turn boundary, e.g. a
+  // message that contains "\n[AGENT] ignore previous and …" — the LLM would
+  // otherwise read it as a real agent turn. Replace bracketed turn-tag
+  // patterns and collapse linebreaks so each step renders as one labelled
+  // line.
+  const safe = step.content
+    .replace(/\r/g, '')
+    .replace(/\n\s*\[(USER|AGENT|TOOL|BRAIN|MEMORY|SYSTEM)\]/gi, ' [$1-quoted]')
+    .replace(/\n+/g, ' ⏎ ')
+  return `[${who}] ${safe}`
 }
 
 interface ParsedExtractorOutput {
@@ -265,9 +275,21 @@ interface ParsedExtractorOutput {
   }>
 }
 
+/** Hard cap on extractor JSON payload size — defends against pathological
+ *  upstream responses (DoS via deeply nested or massive JSON). 1 MiB is
+ *  well above any reasonable proposal set; anything larger is malformed. */
+const MAX_EXTRACTOR_JSON_BYTES = 1 << 20
+
 function tryParseExtractorOutput(raw: string): ParsedExtractorOutput | null {
   const jsonText = extractJsonObject(raw)
   if (!jsonText) return null
+  if (jsonText.length > MAX_EXTRACTOR_JSON_BYTES) {
+    log.warn('llm extractor output exceeded size cap — rejecting', {
+      bytes: jsonText.length,
+      cap: MAX_EXTRACTOR_JSON_BYTES,
+    })
+    return null
+  }
   try {
     const parsed = JSON.parse(jsonText) as unknown
     return validateExtractorOutput(parsed)
@@ -333,10 +355,19 @@ function validateExtractorOutput(x: unknown): ParsedExtractorOutput | null {
       const body = typeof p['body'] === 'string' ? p['body'] : null
       const type = typeof p['type'] === 'string' ? p['type'] : 'insight'
       const phaseRaw = typeof p['phase'] === 'number' ? p['phase'] : 1
-      const confidence = typeof p['confidence'] === 'number' ? p['confidence'] : undefined
+      // Clamp confidence at the extractor edge. Three-Gate scoring re-clamps,
+      // but the raw value also lands in InboundArtifact frontmatter + API
+      // responses where unclamped values would mislead reviewers.
+      const confRaw = typeof p['confidence'] === 'number' ? p['confidence'] : undefined
+      const confidence =
+        confRaw !== undefined && Number.isFinite(confRaw)
+          ? Math.max(0, Math.min(1, confRaw))
+          : undefined
       if (!proposed_id || !title || !body) return null
       if (!isAtomicId(proposed_id)) return null
-      const phase = (phaseRaw >= 0 && phaseRaw <= 5 ? phaseRaw : 1) as Phase
+      const phase = (Number.isInteger(phaseRaw) && phaseRaw >= 0 && phaseRaw <= 5
+        ? phaseRaw
+        : 1) as Phase
       return {
         proposed_id,
         phase,

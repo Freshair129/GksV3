@@ -12,7 +12,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import type {
   AtomicEntry,
   AtomicFilter,
@@ -154,7 +154,16 @@ export class AtomicLayer {
   }
 
   private async readBody(entry: AtomicEntry): Promise<string> {
+    // Defense-in-depth: even though atomic_index.jsonl is treated as trusted,
+    // verify the resolved path stays inside gksRoot. A poisoned index entry
+    // with `path: "../../etc/passwd"` would otherwise leak arbitrary files.
     const abs = resolve(this.gksRoot, entry.path)
+    const rel = relative(this.gksRoot, abs)
+    if (rel.startsWith('..') || resolve(rel) === rel) {
+      throw new Error(
+        `AtomicLayer: refusing to read '${entry.path}' for ${entry.id} — escapes gksRoot`,
+      )
+    }
     if (this.cacheBodies) {
       const cached = this.bodyCache.get(entry.id)
       if (cached !== undefined) return cached

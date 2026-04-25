@@ -25,6 +25,7 @@ import {
 import { METRIC_NAMES, recordHistogram } from '../../lib/telemetry.js'
 import type { CostTracker } from '../../lib/cost-tracker.js'
 import { estimateTokens } from '../../lib/pricing.js'
+import { redactSecrets, truncate } from '../../lib/text.js'
 
 const log = createLogger('vector:embedder')
 
@@ -189,7 +190,7 @@ function ollamaEmbedder(opts: EmbedderOptions): Embedder {
             })
             if (!res.ok) {
               const body = await res.text().catch(() => '')
-              throw new Error(`ollama embed ${res.status}: ${body.slice(0, 200)}`)
+              throw new Error(`ollama embed ${res.status}: ${truncate(redactSecrets(body), 200)}`)
             }
             const data = (await res.json()) as { embedding?: number[] }
             if (!data.embedding || !Array.isArray(data.embedding)) {
@@ -249,7 +250,7 @@ function openaiEmbedder(opts: EmbedderOptions): Embedder {
             })
             if (!res.ok) {
               const body = await res.text().catch(() => '')
-              throw new Error(`openai embed ${res.status}: ${body.slice(0, 200)}`)
+              throw new Error(`openai embed ${res.status}: ${truncate(redactSecrets(body), 200)}`)
             }
             const data = (await res.json()) as {
               data: Array<{ embedding: number[]; index: number }>

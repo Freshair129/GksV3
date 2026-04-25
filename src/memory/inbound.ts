@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { InboundArtifact, InboundReceipt, Phase } from './types.js'
 import { isAtomicId } from './atomic-id.js'
+import { yamlLite } from '../lib/yaml-lite.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('inbound')
@@ -69,22 +70,26 @@ export class InboundQueue {
 }
 
 function renderArtifactMarkdown(a: InboundArtifact, reviewId: string): string {
-  const fm = [
-    `proposed_id: ${a.proposed_id}`,
-    `phase: ${a.phase}`,
-    `type: ${a.type}`,
-    `status: raw`,
-    `review_id: ${reviewId}`,
-    `proposed_at: ${new Date().toISOString()}`,
-    a.source_session ? `source_session: ${a.source_session}` : null,
-    a.confidence !== undefined ? `confidence: ${a.confidence}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  // Stamp namespace fields so reviewers know which tenant proposed the
+  // candidate atom. yamlLite escapes any colon/hash/newline in scalar values
+  // so attacker-controlled fields can't break out of their frontmatter slot.
+  const fm: Record<string, unknown> = {
+    proposed_id: a.proposed_id,
+    phase: a.phase,
+    type: a.type,
+    status: 'raw',
+    review_id: reviewId,
+    proposed_at: new Date().toISOString(),
+  }
+  if (a.source_session) fm['source_session'] = a.source_session
+  if (a.confidence !== undefined) fm['confidence'] = a.confidence
+  if (a.namespace?.tenant_id) fm['tenant_id'] = a.namespace.tenant_id
+  if (a.namespace?.user_id) fm['user_id'] = a.namespace.user_id
+  if (a.namespace?.session_id) fm['session_id'] = a.namespace.session_id
+  if (a.namespace?.agent_id) fm['agent_id'] = a.namespace.agent_id
 
   const reason = a.reason ? `\n## Proposal Rationale\n\n${a.reason}\n` : ''
-
-  return `---\n${fm}\n---\n\n# ${a.title}\n\n${a.body.trim()}\n${reason}`
+  return `---\n${yamlLite(fm)}---\n\n# ${a.title}\n\n${a.body.trim()}\n${reason}`
 }
 
 function validateId(id: string): void {

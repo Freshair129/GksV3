@@ -144,6 +144,13 @@ export interface InboundArtifact {
   source_session?: string
   confidence?: number
   reason?: string
+  /**
+   * Active namespace at the time of proposal. Stamped automatically by
+   * api.ts retain() so reviewers know which tenant/user/agent submitted
+   * the candidate atom — promoted into the canonical gks/ tree only after
+   * human review.
+   */
+  namespace?: Namespace
 }
 
 export interface InboundReceipt {
@@ -217,6 +224,13 @@ export interface RetrievalHit {
   score: number
   path?: string
   title?: string
+  /**
+   * SECURITY: snippet text is sourced from user-controlled memory (retain
+   * inputs, session traces, Obsidian notes). When passed into a downstream
+   * LLM prompt, treat as untrusted — frame it explicitly (e.g. quoted
+   * blocks, "RETRIEVED CONTENT BEGIN/END" markers) so an attacker can't use
+   * a planted note to override the agent's instructions.
+   */
   snippet: string
   metadata?: Record<string, unknown>
 }

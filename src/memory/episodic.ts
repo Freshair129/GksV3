@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import type { EpisodicMemory, TraceStep } from './types.js'
 import { appendJsonl, forEachJsonl } from '../lib/jsonl.js'
+import { yamlLite } from '../lib/yaml-lite.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('episodic')
@@ -153,38 +154,8 @@ function renderEpisodicMarkdown(m: EpisodicMemory): string {
   return `---\n${yamlLite(fm)}---\n\n# Session ${m.session_id}\n\n${m.summary.trim()}\n`
 }
 
-/**
- * Tiny YAML renderer for frontmatter only. We don't depend on `yaml` here so
- * that episodic writes work offline with zero I/O hazards; the read side uses
- * `yaml` via parseFrontmatter().
- */
-function yamlLite(obj: Record<string, unknown>): string {
-  const lines: string[] = []
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) {
-      lines.push(`${k}: null`)
-    } else if (Array.isArray(v)) {
-      if (v.length === 0) lines.push(`${k}: []`)
-      else {
-        lines.push(`${k}:`)
-        for (const item of v) lines.push(`  - ${scalar(item)}`)
-      }
-    } else if (typeof v === 'object') {
-      lines.push(`${k}: ${JSON.stringify(v)}`)
-    } else {
-      lines.push(`${k}: ${scalar(v)}`)
-    }
-  }
-  return lines.join('\n') + '\n'
-}
-
-function scalar(v: unknown): string {
-  if (typeof v === 'string') {
-    if (/[:#\-\n]/.test(v) || v.trim() !== v) return JSON.stringify(v)
-    return v
-  }
-  return String(v)
-}
+// yamlLite + yamlScalar live in ../lib/yaml-lite.ts so inbound.ts can share
+// the same escape rules.
 
 function parseFrontmatter(text: string): Record<string, unknown> {
   if (!text.startsWith('---')) return {}

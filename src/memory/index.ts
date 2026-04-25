@@ -316,6 +316,19 @@ export class MemoryStore {
 
   // ─── core methods (BLUEPRINT contract) ─────────────────────────────────
 
+  /**
+   * Exact-id lookup against the atomic index.
+   *
+   * SECURITY / SCOPE: atomic notes are GLOBAL by design — they live in the
+   * shared `gks/` tree, not under a tenant directory. A caller in tenant A
+   * who knows tenant B's atomic ID will retrieve B's canonical note. This
+   * is intentional: atomic notes are the canonical, reviewed knowledge base
+   * (concept definitions, ADRs, public facts) and are meant to be sharable.
+   *
+   * If you need per-tenant private notes, store them via `retain()` (which
+   * stamps namespace) and discover them via `recall()` — never put
+   * tenant-private content into atomic.
+   */
   async lookup(id: string): Promise<ReturnType<AtomicLayer['lookup']>> {
     const result = await this.atomic.lookup(id)
     if (this.audit) {

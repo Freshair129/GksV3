@@ -21,7 +21,7 @@
 import type { Pool, PoolClient } from 'pg'
 import { createHash, randomUUID } from 'node:crypto'
 
-import { quoteIdent, withTx } from '../../lib/sql.js'
+import { quoteIdent, safeLimit, withTx } from '../../lib/sql.js'
 
 import type {
   AddEdgeArgs,
@@ -184,7 +184,8 @@ class PgGraphBackend implements GraphBackend {
       }
     }
 
-    const limitClause = q.limit ? `LIMIT ${Math.max(1, Math.floor(q.limit))}` : ''
+    const limitClause =
+      q.limit !== undefined ? `LIMIT ${safeLimit(q.limit, { default: 100 })}` : ''
     const sql = `
       SELECT id, from_node, to_node, rel, props, valid_from, valid_to, recorded_at, superseded_by
         FROM ${quoteIdent(this.edgeTable)}
@@ -200,7 +201,7 @@ class PgGraphBackend implements GraphBackend {
     await this.ensureLoaded()
     const depth = Math.max(1, q.depth ?? 1)
     const direction = q.direction ?? 'out'
-    const limit = q.limit ?? 1000
+    const limit = safeLimit(q.limit ?? 1000, { default: 1000 })
 
     // Validity predicate (parameterized).
     const params: unknown[] = [seed, depth]
@@ -258,7 +259,7 @@ class PgGraphBackend implements GraphBackend {
         FROM traversal t
        WHERE t.hops > 0
        ORDER BY t.hops ASC
-       LIMIT ${Math.max(1, Math.floor(limit))}
+       LIMIT ${limit}
     `
 
     const result = await this.pool.query(sql, params)

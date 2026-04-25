@@ -74,6 +74,19 @@ export function isMissingTable(err: unknown): boolean {
  * Used by pgvector.copyInDocs(); generic enough to live here for the next
  * backend that wants COPY-in.
  */
+/**
+ * Coerce a numeric LIMIT/OFFSET to a safe positive integer. Postgres doesn't
+ * accept parameters in `LIMIT` in all dialects we target, so values are
+ * string-interpolated. `Math.floor` of a finite Number cannot produce a
+ * SQL-injectable string, but NaN / Infinity / negative input would either
+ * break SQL parsing or trigger pathological scans — clamp to a sane range.
+ */
+export function safeLimit(n: number, opts: { default: number; max?: number }): number {
+  const max = opts.max ?? 100_000
+  if (!Number.isFinite(n)) return opts.default
+  return Math.min(max, Math.max(1, Math.floor(n)))
+}
+
 export function escapeCopyField(value: string): string {
   return value
     .replace(/\\/g, '\\\\')

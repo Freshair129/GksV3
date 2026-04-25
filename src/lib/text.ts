@@ -47,3 +47,24 @@ export function truncate(s: string, max: number, opts: { collapse?: boolean } = 
   const src = opts.collapse ? s.replace(/\s+/g, ' ').trim() : s
   return src.length <= max ? src : src.slice(0, max - 1) + '…'
 }
+
+/**
+ * Best-effort redaction of credential-shaped substrings before they land in
+ * thrown errors / log lines / OTel spans. Provider error bodies sometimes
+ * echo back the request (incl. Authorization headers); we mask those before
+ * propagation so a 500 from upstream can't leak our key into Sentry/etc.
+ *
+ * Patterns redacted: Bearer tokens, x-api-key headers, "api_key=...", raw
+ * provider key prefixes (sk-, sk-ant-, xoxb-, ghp_), and obvious JWT shapes.
+ */
+export function redactSecrets(s: string): string {
+  if (!s) return s
+  return s
+    .replace(/Bearer\s+[A-Za-z0-9._\-+/=]{8,}/gi, 'Bearer [REDACTED]')
+    .replace(/(x-api-key|authorization)\s*[:=]\s*[A-Za-z0-9._\-+/=]{8,}/gi, '$1: [REDACTED]')
+    .replace(/\b(api[_-]?key|token|secret)\b\s*[:=]\s*"?[A-Za-z0-9._\-+/=]{8,}"?/gi, '$1=[REDACTED]')
+    .replace(/\bsk-(ant-)?[A-Za-z0-9_\-]{16,}/g, 'sk-[REDACTED]')
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, 'xox-[REDACTED]')
+    .replace(/\bghp_[A-Za-z0-9]{16,}/g, 'ghp_[REDACTED]')
+    .replace(/\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/g, '[JWT-REDACTED]')
+}

@@ -20,7 +20,7 @@
  * and before the maxTotal cap. See src/memory/index.ts.
  */
 
-import { tokenize } from '../lib/text.js'
+import { redactSecrets, tokenize, truncate } from '../lib/text.js'
 import { withRetry } from '../lib/retry.js'
 import { METRIC_NAMES, recordHistogram } from '../lib/telemetry.js'
 import { createLogger } from '../lib/logger.js'
@@ -184,7 +184,7 @@ function httpReranker(endpoint: string, apiKey?: string): Reranker {
             })
             if (!res.ok) {
               const body = await res.text().catch(() => '')
-              throw new Error(`rerank http ${res.status}: ${body.slice(0, 200)}`)
+              throw new Error(`rerank http ${res.status}: ${truncate(redactSecrets(body), 200)}`)
             }
             const data = (await res.json()) as {
               scores?: number[]

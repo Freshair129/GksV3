@@ -28,7 +28,7 @@
  *   - A small TTL cache wraps any adapter (defaults to 120s per BLUEPRINT).
  */
 
-import { normalizeText } from '../lib/text.js'
+import { normalizeText, redactSecrets, truncate } from '../lib/text.js'
 import { METRIC_NAMES, incrementCounter } from '../lib/telemetry.js'
 import { createLogger } from '../lib/logger.js'
 
@@ -83,7 +83,7 @@ export function createRestObsidianAdapter(opts: RestObsidianOptions): ObsidianAd
       const res = await fetch(`${opts.baseUrl}${path}`, { headers, signal: ctrl.signal })
       if (!res.ok) {
         const body = await res.text().catch(() => '')
-        throw new Error(`obsidian rest ${res.status}: ${body.slice(0, 200)}`)
+        throw new Error(`obsidian rest ${res.status}: ${truncate(redactSecrets(body), 200)}`)
       }
       return (await res.json()) as T
     } finally {
@@ -103,7 +103,7 @@ export function createRestObsidianAdapter(opts: RestObsidianOptions): ObsidianAd
       })
       if (!res.ok) {
         const txt = await res.text().catch(() => '')
-        throw new Error(`obsidian rest ${res.status}: ${txt.slice(0, 200)}`)
+        throw new Error(`obsidian rest ${res.status}: ${truncate(redactSecrets(txt), 200)}`)
       }
       return (await res.json()) as T
     } finally {

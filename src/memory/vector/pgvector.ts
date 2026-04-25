@@ -93,7 +93,14 @@ class PgvectorBackend implements VectorBackend {
     // construction, not deep inside the first query.
     quoteIdent(this.table, 'pgvector')
     quoteIdent(this.manifestTable, 'pgvector')
-    this.hnswEfSearch = opts.hnswEfSearch ?? 40
+    // Bound-check at construction so the SET LOCAL hnsw.ef_search interpolation
+    // can never receive NaN/Infinity/negative values that would either break SQL
+    // parsing or pin the planner into a pathological mode.
+    const ef = opts.hnswEfSearch ?? 40
+    if (!Number.isFinite(ef) || ef < 1 || ef > 10_000) {
+      throw new Error(`pgvector: invalid hnswEfSearch ${ef} — must be integer in [1, 10000]`)
+    }
+    this.hnswEfSearch = Math.floor(ef)
     this.copyBatchSize = opts.copyBatchSize ?? 1000
   }
 
@@ -229,7 +236,12 @@ class PgvectorBackend implements VectorBackend {
       return []
     }
 
-    const k = opts.topK ?? 5
+    // Defense-in-depth: clamp to a sane range so a caller passing NaN /
+    // Infinity / negative / huge topK can't disturb the LIMIT interpolation
+    // or trigger pathological scans. Math.floor of a finite Number cannot
+    // produce a SQL-injectable string, but a hard cap is cheap insurance.
+    const kRaw = opts.topK ?? 5
+    const k = Number.isFinite(kRaw) ? Math.min(10_000, Math.max(1, Math.floor(kRaw))) : 5
     const threshold = opts.scoreThreshold ?? -Infinity
 
     // Build optional metadata filter clauses. We use containment (@>) on the
@@ -253,7 +265,7 @@ class PgvectorBackend implements VectorBackend {
         FROM ${quoteIdent(this.table)}
        WHERE ${where}
        ORDER BY vector <=> (SELECT v FROM q) ASC
-       LIMIT ${Math.max(1, Math.floor(k))}
+       LIMIT ${k}
     `
 
     return withTx(this.pool, async (client) => {

@@ -62,11 +62,19 @@ describe('gks CLI', () => {
     expect(recallResult.stdout).toMatch(/cat/)
   }, 30_000)
 
-  it('lookup returns non-zero for unknown id', async () => {
+  it('lookup returns non-zero for unknown id (plain output)', async () => {
     run(['init', `--root=${workdir}`])
     const r = run(['lookup', 'CONCEPT--DOES-NOT-EXIST', `--root=${workdir}`])
     expect(r.code).toBe(1)
     expect(r.stdout + r.stderr).toMatch(/not found/)
+  }, 30_000)
+
+  it('lookup --json returns exit 0 with {found:false} on unknown id', async () => {
+    run(['init', `--root=${workdir}`])
+    const r = run(['lookup', 'CONCEPT--DOES-NOT-EXIST', `--root=${workdir}`, '--json'])
+    expect(r.code).toBe(0)
+    const parsed = JSON.parse(r.stdout) as { found: boolean }
+    expect(parsed.found).toBe(false)
   }, 30_000)
 
   it('propose-inbound writes an artifact', async () => {

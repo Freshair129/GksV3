@@ -19,15 +19,13 @@
  *   the "tool missing" graceful degradation.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-
 import type {
   ObsidianAdapter,
   ObsidianNote,
   ObsidianSearchHit,
 } from './obsidian-mcp.js'
 import { extractWikilinks, wikilinkToPath } from './obsidian-mcp.js'
-import { isPresent, isRecord } from '../lib/guards.js'
+import { isPresent, isRecord, toStringArray } from '../lib/guards.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('obsidian:mcp-stdio')
@@ -69,6 +67,8 @@ export interface MCPClientLike {
     content?: Array<{ type: string; text?: string }>
     isError?: boolean
   }>
+  /** Optional in older SDK / mock variants. ping() uses it as a health probe. */
+  listTools?(): Promise<{ tools: Array<{ name: string }> }>
   close(): Promise<void>
 }
 
@@ -92,7 +92,6 @@ export function createMCPObsidianAdapter(opts: MCPObsidianOptions): ObsidianAdap
 
   let client: MCPClientLike | null = opts.client ?? null
   let connecting: Promise<MCPClientLike> | null = null
-  let process: ChildProcessWithoutNullStreams | null = null
 
   async function getClient(): Promise<MCPClientLike> {
     if (client) return client
@@ -112,15 +111,10 @@ export function createMCPObsidianAdapter(opts: MCPObsidianOptions): ObsidianAdap
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
     const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
 
-    process = spawn(opts.command, opts.args ?? [], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      ...(opts.env ? { env: { ...globalThis.process.env, ...opts.env } } : {}),
-    })
-
-    process.on('error', (err) => {
-      log.error('mcp-stdio process error', { err: err.message })
-    })
-
+    // The transport owns the child process — passing the same command/args to
+    // it spawns once. (Earlier code also called `spawn(...)` here separately,
+    // which orphaned a second process holding stdio handles that the client
+    // never saw — see the H1 cleanup commit.)
     const transport = new StdioClientTransport({
       command: opts.command,
       args: opts.args ?? [],
@@ -166,18 +160,13 @@ export function createMCPObsidianAdapter(opts: MCPObsidianOptions): ObsidianAdap
 
     async ping() {
       try {
-        // listTools is the canonical health check for an MCP server. We don't
-        // care about the result — only that the call succeeds.
         const c = await getClient()
-        // listTools isn't on the minimal MCPClientLike interface — call via
-        // the broader Client (cast is safe; we control the type).
-        const broad = c as unknown as { listTools(): Promise<unknown> }
-        if (typeof broad.listTools === 'function') {
-          await broad.listTools()
-          return true
+        if (c.listTools) {
+          await c.listTools()
+        } else {
+          // Older SDK / mock without listTools — fall back to a search call.
+          await callTool(tools.search, { query: '' })
         }
-        // Fall back to a no-op tool call if the SDK shape changed.
-        await callTool(tools.search, { query: '' })
         return true
       } catch (err) {
         log.debug('mcp-stdio ping failed', { err: (err as Error).message })
@@ -227,15 +216,6 @@ export function createMCPObsidianAdapter(opts: MCPObsidianOptions): ObsidianAdap
       }
     },
   }
-}
-
-/** Close the underlying MCP process. Tests should call this for clean teardown. */
-export async function closeMCPObsidianAdapter(adapter: ObsidianAdapter): Promise<void> {
-  // The adapter doesn't expose its handles (intentionally); close() is on
-  // the impl. For tests we attach a `__close` symbol below; production
-  // callers can rely on process exit to clean up.
-  const impl = adapter as { __close?: () => Promise<void> }
-  if (impl.__close) await impl.__close()
 }
 
 // ─── normalisers ───────────────────────────────────────────────────────────
@@ -322,10 +302,7 @@ function normalizeNote(raw: unknown): ObsidianNote | null {
     (raw['body'] as string | undefined) ??
     (raw['text'] as string | undefined) ??
     ''
-  const tagsRaw = raw['tags']
-  const tags = Array.isArray(tagsRaw)
-    ? tagsRaw.filter((t): t is string => typeof t === 'string')
-    : []
+  const tags = toStringArray(raw['tags'])
   return {
     path,
     title: (raw['title'] as string | undefined) ?? basename(path),

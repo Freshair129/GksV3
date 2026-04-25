@@ -172,7 +172,9 @@ export class MemoryStore {
   }
 
   private _embedder: Embedder | null = null
+  private _embedderPending: Promise<Embedder> | null = null
   private readonly stores = new Map<string, VectorBackend>()
+  private readonly storesPending = new Map<string, Promise<VectorBackend>>()
   private readonly vectorBackendFactory: VectorBackendFactory | null
 
   constructor(opts: MemoryStoreOptions) {
@@ -256,46 +258,65 @@ export class MemoryStore {
 
   async embedder(): Promise<Embedder> {
     if (this._embedder) return this._embedder
-    const raw = this.preBuiltEmbedder ?? (await createEmbedder(this.embedderOptions ?? {}))
-    if (this.costTracker) {
-      const tenantAttrs: Record<string, string> = {}
-      if (this.defaultNamespace.tenant_id) {
-        tenantAttrs['tenant_id'] = this.defaultNamespace.tenant_id
-      }
-      this._embedder = wrapEmbedderWithCostTracker(raw, this.costTracker, tenantAttrs)
-    } else {
-      this._embedder = raw
+    if (this._embedderPending) return this._embedderPending
+    this._embedderPending = (async () => {
+      const raw = this.preBuiltEmbedder ?? (await createEmbedder(this.embedderOptions ?? {}))
+      const wrapped = this.costTracker
+        ? wrapEmbedderWithCostTracker(
+            raw,
+            this.costTracker,
+            this.defaultNamespace.tenant_id
+              ? { tenant_id: this.defaultNamespace.tenant_id }
+              : {},
+          )
+        : raw
+      this._embedder = wrapped
+      log.info('embedder ready', {
+        provider: wrapped.provider,
+        model: wrapped.model,
+        dim: wrapped.dimension,
+        cost_tracker: this.costTracker !== null,
+      })
+      return wrapped
+    })()
+    try {
+      return await this._embedderPending
+    } finally {
+      this._embedderPending = null
     }
-    log.info('embedder ready', {
-      provider: this._embedder.provider,
-      model: this._embedder.model,
-      dim: this._embedder.dimension,
-      cost_tracker: this.costTracker !== null,
-    })
-    return this._embedder
   }
 
   /** Get (or create) a named vector store under the configured vectorDir. */
   async getVectorStore(name: 'atomic' | 'obsidian' | 'episodic' | (string & {})): Promise<VectorBackend> {
     const existing = this.stores.get(name)
     if (existing) return existing
-    const embedder = await this.embedder()
+    const inFlight = this.storesPending.get(name)
+    if (inFlight) return inFlight
 
-    let backend: VectorBackend
-    if (this.vectorBackendFactory) {
-      backend = await this.vectorBackendFactory(name, embedder)
-    } else {
-      const jsonl = new VectorStore({
-        path: join(this.vectorDir, `${name}.jsonl`),
-        embedder,
-        name,
-        scoreThreshold: this.vectorScoreThreshold,
-      })
-      await jsonl.load()
-      backend = jsonl
+    const promise = (async () => {
+      const embedder = await this.embedder()
+      let backend: VectorBackend
+      if (this.vectorBackendFactory) {
+        backend = await this.vectorBackendFactory(name, embedder)
+      } else {
+        const jsonl = new VectorStore({
+          path: join(this.vectorDir, `${name}.jsonl`),
+          embedder,
+          name,
+          scoreThreshold: this.vectorScoreThreshold,
+        })
+        await jsonl.load()
+        backend = jsonl
+      }
+      this.stores.set(name, backend)
+      return backend
+    })()
+    this.storesPending.set(name, promise)
+    try {
+      return await promise
+    } finally {
+      this.storesPending.delete(name)
     }
-    this.stores.set(name, backend)
-    return backend
   }
 
   // ─── core methods (BLUEPRINT contract) ─────────────────────────────────

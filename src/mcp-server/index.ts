@@ -49,28 +49,11 @@ export interface GksMcpServerOptions {
 
 export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
   const server = new McpServer(
-    {
-      name: 'gks-mcp-server',
-      version: SERVER_VERSION,
-    },
+    { name: 'gks-mcp-server', version: SERVER_VERSION },
     { capabilities: { tools: {} } },
   )
 
-  registerRetainTool(server, opts)
-  registerRecallTool(server, opts)
-  registerLookupTool(server, opts)
-  registerProposeInboundTool(server, opts)
-  registerReflectTool(server, opts)
-  if (opts.exposeCrossNamespace) {
-    registerRecallCrossNamespaceTool(server, opts)
-  }
-
-  return server
-}
-
-// ─── tools ─────────────────────────────────────────────────────────────────
-
-function registerRetainTool(server: McpServer, opts: GksMcpServerOptions): void {
+  // gks_retain
   server.registerTool(
     'gks_retain',
     {
@@ -98,16 +81,11 @@ function registerRetainTool(server: McpServer, opts: GksMcpServerOptions): void 
           ...(args.tags ? { tags: args.tags } : {}),
         },
       })
-      return jsonReply({
-        ok: true,
-        doc_id: result.vectorDocId,
-        conflicts: result.conflicts,
-      })
+      return jsonReply({ ok: true, doc_id: result.vectorDocId, conflicts: result.conflicts })
     },
   )
-}
 
-function registerRecallTool(server: McpServer, opts: GksMcpServerOptions): void {
+  // gks_recall
   server.registerTool(
     'gks_recall',
     {
@@ -148,50 +126,15 @@ function registerRecallTool(server: McpServer, opts: GksMcpServerOptions): void 
       })
     },
   )
-}
 
-function registerRecallCrossNamespaceTool(
-  server: McpServer,
-  opts: GksMcpServerOptions,
-): void {
-  server.registerTool(
-    'gks_recall_cross_namespace',
-    {
-      description:
-        'ADMIN: Same as gks_recall but ignores the active namespace filter — returns docs from every tenant. Use only for migration / cross-tenant analytics.',
-      annotations: {
-        title: 'Cross-namespace recall (admin)',
-        destructiveHint: false,
-        readOnlyHint: true,
-      },
-      inputSchema: {
-        query: z.string(),
-        topK: z.number().int().positive().optional(),
-        scoreThreshold: z.number().optional(),
-      },
-    },
-    async (args) => {
-      const result = await recall(opts.store, args.query, {
-        crossNamespace: true,
-        ...(args.topK ? { topK: args.topK } : {}),
-        ...(args.scoreThreshold !== undefined ? { scoreThreshold: args.scoreThreshold } : {}),
-      })
-      return jsonReply({ ok: true, hits: result.hits, took_ms: result.tookMs })
-    },
-  )
-}
-
-function registerLookupTool(server: McpServer, opts: GksMcpServerOptions): void {
+  // gks_lookup
   server.registerTool(
     'gks_lookup',
     {
       description:
         'Exact-id lookup against the atomic index. Returns the canonical note (title + body + frontmatter) or null. Never approximates — use gks_recall for semantic queries.',
       inputSchema: {
-        id: z
-          .string()
-          .regex(/^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_-]*$/)
-          .describe('Atomic ID, e.g. CONCEPT--EVA-TRI-BRAIN'),
+        id: z.string().regex(ATOMIC_ID).describe('Atomic ID, e.g. CONCEPT--EVA-TRI-BRAIN'),
       },
     },
     async (args) => {
@@ -199,22 +142,15 @@ function registerLookupTool(server: McpServer, opts: GksMcpServerOptions): void 
       return jsonReply({ ok: true, found: note != null, note: note ?? null })
     },
   )
-}
 
-function registerProposeInboundTool(
-  server: McpServer,
-  opts: GksMcpServerOptions,
-): void {
+  // gks_propose_inbound
   server.registerTool(
     'gks_propose_inbound',
     {
       description:
         'Propose a new atomic note for the inbound queue. Reviewers later promote it into the canonical gks/ tree. NEVER writes to gks/ directly.',
       inputSchema: {
-        proposed_id: z
-          .string()
-          .regex(/^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_-]*$/)
-          .describe('Atomic ID candidate, TYPE--SLUG format.'),
+        proposed_id: z.string().regex(ATOMIC_ID).describe('TYPE--SLUG format.'),
         phase: z.number().int().min(0).max(5),
         type: z.string(),
         title: z.string(),
@@ -234,9 +170,8 @@ function registerProposeInboundTool(
       return jsonReply({ ok: true, path: receipt.path, review_id: receipt.reviewId })
     },
   )
-}
 
-function registerReflectTool(server: McpServer, opts: GksMcpServerOptions): void {
+  // gks_reflect
   server.registerTool(
     'gks_reflect',
     {
@@ -262,9 +197,7 @@ function registerReflectTool(server: McpServer, opts: GksMcpServerOptions): void
           participants: args.participants ?? [],
           trace,
         },
-        {
-          ...(args.persist !== undefined ? { persist: args.persist } : {}),
-        },
+        { ...(args.persist !== undefined ? { persist: args.persist } : {}) },
       )
       return jsonReply({
         ok: true,
@@ -275,7 +208,42 @@ function registerReflectTool(server: McpServer, opts: GksMcpServerOptions): void
       })
     },
   )
+
+  // gks_recall_cross_namespace (admin only — gated by exposeCrossNamespace flag)
+  if (opts.exposeCrossNamespace) {
+    server.registerTool(
+      'gks_recall_cross_namespace',
+      {
+        description:
+          'ADMIN: Same as gks_recall but ignores the active namespace filter. Use only for migration / cross-tenant analytics.',
+        annotations: {
+          title: 'Cross-namespace recall (admin)',
+          destructiveHint: false,
+          readOnlyHint: true,
+        },
+        inputSchema: {
+          query: z.string(),
+          topK: z.number().int().positive().optional(),
+          scoreThreshold: z.number().optional(),
+        },
+      },
+      async (args) => {
+        const result = await recall(opts.store, args.query, {
+          crossNamespace: true,
+          ...(args.topK ? { topK: args.topK } : {}),
+          ...(args.scoreThreshold !== undefined ? { scoreThreshold: args.scoreThreshold } : {}),
+        })
+        return jsonReply({ ok: true, hits: result.hits, took_ms: result.tookMs })
+      },
+    )
+  }
+
+  return server
 }
+
+// Atomic id pattern — single source so MCP tools, CLI, inbound queue, and
+// in-memory validators all agree.
+const ATOMIC_ID = /^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_-]*$/
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 

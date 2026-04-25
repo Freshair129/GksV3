@@ -171,8 +171,14 @@ async function cmdLookup(argv: string[]): Promise<void> {
   const store = await openStore(flags)
   const note = await store.lookup(id)
   if (!note) {
-    if (flags.json) console.log(JSON.stringify({ found: false, note: null }))
-    else console.log(`✗ ${id} — not found`)
+    // --json: emit a well-formed result and exit 0 (not-found is data, not
+    // a CLI failure — agents reading stdout shouldn't conflate the two).
+    // Plain output: pretty + exit 1 so shell pipelines short-circuit.
+    if (flags.json) {
+      console.log(JSON.stringify({ found: false, note: null }))
+      return
+    }
+    console.log(`✗ ${id} — not found`)
     process.exit(1)
   }
   emit(flags, note, () => {

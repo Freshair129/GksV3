@@ -110,31 +110,41 @@ export function computeBackoff(attempt: number, baseDelayMs: number, maxDelayMs:
  */
 export function defaultIsRetryable(err: unknown, _attempt: number): boolean {
   if (!err) return false
-  // Network-level errors from `undici` / Node fetch.
+  if (isNetworkError(err)) return true
+
+  const status = extractHttpStatus(err)
+  if (status !== null) {
+    if (status === 408 || status === 429 || (status >= 500 && status < 600)) return true
+    if (status >= 400 && status < 500) return false
+  }
+
+  const msg = String((err as Error).message ?? err)
+  return /timeout|fetch failed|socket hang up|aborted/i.test(msg)
+}
+
+/**
+ * Extract a 3-digit HTTP status from a thrown Error's message. Clients in
+ * this repo throw with the status embedded in the text (e.g.
+ * "ollama embed 503: down", "rerank http 429: rate limited"). Returns null
+ * when no status is detectable.
+ */
+export function extractHttpStatus(err: unknown): number | null {
+  const msg = String((err as Error).message ?? err)
+  const m = /\b(\d{3})\b/.exec(msg)
+  return m ? Number(m[1]) : null
+}
+
+/** True for the network-level error codes from undici / Node fetch / pg. */
+export function isNetworkError(err: unknown): boolean {
   const code = (err as { code?: string }).code
-  if (
+  return (
     code === 'ECONNRESET' ||
     code === 'ECONNREFUSED' ||
     code === 'ETIMEDOUT' ||
     code === 'EAI_AGAIN' ||
     code === 'UND_ERR_SOCKET' ||
     code === 'UND_ERR_CONNECT_TIMEOUT'
-  ) {
-    return true
-  }
-
-  // HTTP status — clients in this repo throw with the status in the message.
-  // Pattern: "ollama embed 503: ..." / "openai embed 429 ..." / etc.
-  const msg = String((err as Error).message ?? err)
-  const statusMatch = /\b(\d{3})\b/.exec(msg)
-  if (statusMatch) {
-    const status = Number(statusMatch[1])
-    if (status === 408 || status === 429 || (status >= 500 && status < 600)) return true
-    if (status >= 400 && status < 500) return false
-  }
-
-  if (/timeout|fetch failed|socket hang up|aborted/i.test(msg)) return true
-  return false
+  )
 }
 
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {

@@ -27,11 +27,13 @@
  *     _manifest.json so callers get a uniform getManifest() shape.
  */
 
-import type { Pool, PoolClient } from 'pg'
+import type { Pool } from 'pg'
 import { from as copyFrom } from 'pg-copy-streams'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import { randomUUID } from 'node:crypto'
+
+import { escapeCopyField, isMissingTable, quoteIdent, withTx } from '../../lib/sql.js'
 
 import type {
   VectorBackend,
@@ -89,8 +91,8 @@ class PgvectorBackend implements VectorBackend {
     this.manifestTable = `${this.table}_manifest`
     // Validate identifiers up front so misconfiguration fails fast at
     // construction, not deep inside the first query.
-    quoteIdent(this.table)
-    quoteIdent(this.manifestTable)
+    quoteIdent(this.table, 'pgvector')
+    quoteIdent(this.manifestTable, 'pgvector')
     this.hnswEfSearch = opts.hnswEfSearch ?? 40
     this.copyBatchSize = opts.copyBatchSize ?? 1000
   }
@@ -254,12 +256,9 @@ class PgvectorBackend implements VectorBackend {
        LIMIT ${Math.max(1, Math.floor(k))}
     `
 
-    const client = await this.pool.connect()
-    try {
-      await client.query('BEGIN')
+    return withTx(this.pool, async (client) => {
       await client.query(`SET LOCAL hnsw.ef_search = ${Math.floor(this.hnswEfSearch)}`)
       const result = await client.query(sql, params)
-      await client.query('COMMIT')
       const hits: VectorHit[] = []
       for (const row of result.rows as PgRow[]) {
         const score = Number(row.score)
@@ -267,12 +266,7 @@ class PgvectorBackend implements VectorBackend {
         hits.push({ doc: pgRowToDoc(row), score })
       }
       return hits
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {})
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   }
 
   async patchMetadata(
@@ -289,12 +283,10 @@ class PgvectorBackend implements VectorBackend {
     if (patches.length === 0) return []
     await this.ensureLoaded()
 
-    const client = await this.pool.connect()
-    try {
-      await client.query('BEGIN')
+    return withTx(this.pool, async (client) => {
       const out: Array<VectorDoc | null> = []
       for (const { id, patch } of patches) {
-        // jsonb || jsonb performs shallow merge — replaces matching keys,
+        // jsonb || jsonb performs shallow merge: replaces matching keys,
         // preserves the rest. Matches the in-memory backend semantics.
         const result = await client.query(
           `UPDATE ${quoteIdent(this.table)}
@@ -305,14 +297,8 @@ class PgvectorBackend implements VectorBackend {
         )
         out.push(result.rows.length > 0 ? pgRowToDoc(result.rows[0] as PgRow) : null)
       }
-      await client.query('COMMIT')
       return out
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {})
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   }
 
   async get(id: string): Promise<VectorDoc | undefined> {
@@ -470,38 +456,30 @@ class PgvectorBackend implements VectorBackend {
   }
 
   private async copyInDocs(docs: VectorDoc[]): Promise<void> {
-    const client = await this.pool.connect()
-    try {
-      // COPY into a temp table, then INSERT...SELECT with ON CONFLICT — the
-      // direct `COPY ... ON CONFLICT` syntax doesn't exist in Postgres.
-      const tmp = `tmp_gks_${process.pid}_${Date.now()}`
+    // COPY into a temp table, then INSERT…SELECT with ON CONFLICT — the
+    // direct `COPY … ON CONFLICT` syntax doesn't exist in Postgres.
+    // The CREATE TEMP TABLE has to live INSIDE the txn or `ON COMMIT DROP`
+    // would fire at the implicit per-statement commit and we'd COPY into
+    // a table that no longer exists.
+    const tmp = `tmp_gks_${process.pid}_${Date.now()}`
+    await withTx(this.pool, async (client) => {
       await client.query(
         `CREATE TEMP TABLE ${quoteIdent(tmp)} (LIKE ${quoteIdent(this.table)} INCLUDING DEFAULTS) ON COMMIT DROP`,
       )
-      await client.query('BEGIN')
-
       const stream = client.query(
         copyFrom(
           `COPY ${quoteIdent(tmp)} (id, store, source, chunk_id, text, vector, metadata, created_at) ` +
             `FROM STDIN WITH (FORMAT text, DELIMITER E'\\t', NULL '\\\\N')`,
         ),
       )
-
       const source = Readable.from(this.copyRowGenerator(docs))
       await pipeline(source, stream)
-
       await client.query(
         `INSERT INTO ${quoteIdent(this.table)}
            SELECT * FROM ${quoteIdent(tmp)}
          ON CONFLICT (id) DO NOTHING`,
       )
-      await client.query('COMMIT')
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {})
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   }
 
   private *copyRowGenerator(docs: VectorDoc[]): Generator<string> {
@@ -560,30 +538,3 @@ export function pgToVector(v: string | number[]): number[] {
   return trimmed.split(',').map(Number)
 }
 
-function quoteIdent(name: string): string {
-  // Conservative whitelist — caller controls the table prefix; reject anything
-  // that could hide an injection.
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-    throw new Error(`pgvector: invalid identifier '${name}' — letters/digits/underscore only`)
-  }
-  return `"${name}"`
-}
-
-function escapeCopyField(value: string): string {
-  // Per the COPY text spec: backslash, tab, newline, CR, and the NULL
-  // marker need escaping.
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/\t/g, '\\t')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-}
-
-function isMissingTable(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code: string }).code === '42P01'
-  )
-}

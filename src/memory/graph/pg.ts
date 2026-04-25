@@ -21,6 +21,8 @@
 import type { Pool, PoolClient } from 'pg'
 import { createHash, randomUUID } from 'node:crypto'
 
+import { quoteIdent, withTx } from '../../lib/sql.js'
+
 import type {
   AddEdgeArgs,
   AddNodeArgs,
@@ -53,7 +55,7 @@ class PgGraphBackend implements GraphBackend {
 
   constructor(opts: PgGraphBackendOptions) {
     const base = opts.table ?? 'gks_graph'
-    quoteIdent(base)
+    quoteIdent(base, 'pg graph')
     this.pool = opts.pool
     this.nodeTable = `${base}_node`
     this.edgeTable = `${base}_edge`
@@ -95,19 +97,15 @@ class PgGraphBackend implements GraphBackend {
     const id = args.id ?? randomUUID()
     const validFrom = args.valid_from ?? now
 
-    const client = await this.pool.connect()
-    try {
-      await client.query('BEGIN')
-
-      // Verify both endpoints exist (we get a clear error instead of a deep FK
-      // violation, and we preserve the in-memory backend's contract).
+    return withTx(this.pool, async (client) => {
+      // Verify both endpoints exist (clear error instead of a deep FK
+      // violation; preserves the in-memory backend's contract).
       await this.assertNodeExists(client, args.from, 'from')
       await this.assertNodeExists(client, args.to, 'to')
 
       if (args.supersede) {
-        // Supersede semantics from the in-memory backend: any currently-valid
-        // edge with the same (from, rel) gets valid_to set to this new edge's
-        // valid_from and superseded_by pointed at the new id.
+        // Any currently-valid (from, rel) edge gets valid_to set to this
+        // new edge's valid_from and superseded_by pointed at the new id.
         await client.query(
           `UPDATE ${quoteIdent(this.edgeTable)}
               SET valid_to = $3, superseded_by = $4
@@ -131,15 +129,8 @@ class PgGraphBackend implements GraphBackend {
           now,
         ],
       )
-
-      await client.query('COMMIT')
       return rowToEdge(result.rows[0] as PgEdgeRow)
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {})
-      throw err
-    } finally {
-      client.release()
-    }
+    })
   }
 
   async retractEdge(id: string, at: string = new Date().toISOString()): Promise<GraphEdge | null> {
@@ -392,9 +383,3 @@ function stableId(prefix: string, ...parts: string[]): string {
   return `${prefix}-${h}`
 }
 
-function quoteIdent(name: string): string {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-    throw new Error(`pg graph: invalid identifier '${name}' — letters/digits/underscore only`)
-  }
-  return `"${name}"`
-}

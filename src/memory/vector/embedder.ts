@@ -16,7 +16,7 @@
 
 import { createHash } from 'node:crypto'
 import { createLogger } from '../../lib/logger.js'
-import { withRetry } from '../../lib/retry.js'
+import { extractHttpStatus, withRetry } from '../../lib/retry.js'
 import {
   CircuitBreaker,
   CircuitBreakerOpenError,
@@ -355,13 +355,10 @@ function makeBreaker(
 }
 
 function defaultEmbedderFailure(err: unknown): boolean {
-  const msg = String((err as Error).message ?? err)
-  // 4xx (except 408/429) shouldn't trip the breaker — fixing those needs a
-  // config change, not a wait.
-  const m = /\b(\d{3})\b/.exec(msg)
-  if (m) {
-    const status = Number(m[1])
-    if (status >= 400 && status < 500 && status !== 408 && status !== 429) return false
+  // 4xx (except 408/429) is a config issue — don't burn breaker budget on it.
+  const status = extractHttpStatus(err)
+  if (status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+    return false
   }
   return true
 }

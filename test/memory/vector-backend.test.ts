@@ -130,7 +130,7 @@ function makeMemoryBackend(name: string, embedder: Embedder): VectorBackend {
       })
     },
 
-    get(id: string) { return byId.get(id) },
+    async get(id: string) { return byId.get(id) },
 
     listDocs() { return docs },
 
@@ -193,12 +193,12 @@ describe('VectorBackend factory swap', () => {
       })
 
       const backend = await store.getVectorStore('atomic')
-      const firstDoc = backend.get(first.vectorDocId!)!
+      const firstDoc = await backend.get(first.vectorDocId!)
       // Since the two retains have identical content, the resolver treats it as
       // a true duplicate (not a conflict). Valid_to stays null. We assert the
       // plumbing didn't blow up and both docs exist.
       expect(firstDoc).toBeDefined()
-      expect(backend.get(second.vectorDocId!)).toBeDefined()
+      expect(await backend.get(second.vectorDocId!)).toBeDefined()
     } finally {
       await rm(root, { recursive: true, force: true })
     }

@@ -260,7 +260,12 @@ export class VectorStore implements VectorBackend {
     return cosine(queryVec, doc.vector)
   }
 
-  get(id: string): VectorDoc | undefined {
+  async get(id: string): Promise<VectorDoc | undefined> {
+    return this.byId.get(id)
+  }
+
+  /** Synchronous lookup — only valid on memory-resident backends. */
+  getSync(id: string): VectorDoc | undefined {
     return this.byId.get(id)
   }
 

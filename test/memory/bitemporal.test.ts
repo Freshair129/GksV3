@@ -34,7 +34,7 @@ describe('bi-temporal retain()', () => {
     cleanup.push(root)
     const r = await retain(store, { content: 'The capital of France is Paris.' })
     const vs = await store.getVectorStore('atomic')
-    const doc = vs.get(r.vectorDocId!)!
+    const doc = ((await vs.get(r.vectorDocId!))!)
     expect(doc.metadata['valid_from']).toBeTypeOf('string')
     expect(doc.metadata['valid_to']).toBeNull()
   })
@@ -60,7 +60,7 @@ describe('bi-temporal retain()', () => {
     // Second retain should have flagged the first and marked it invalid.
     expect(second.conflicts.length).toBeGreaterThanOrEqual(0)
     const vs = await store.getVectorStore('atomic')
-    const firstDoc = vs.get(first.vectorDocId!)!
+    const firstDoc = ((await vs.get(first.vectorDocId!))!)
     // If conflict was detected, valid_to is set; otherwise it's still null.
     if (second.conflicts.some((c) => c.existingId === first.vectorDocId)) {
       expect(firstDoc.metadata['valid_to']).toBeTypeOf('string')
@@ -80,10 +80,10 @@ describe('bi-temporal retain()', () => {
     })
 
     const vs = await store.getVectorStore('atomic')
-    const firstDoc = vs.get(first.vectorDocId!)!
+    const firstDoc = ((await vs.get(first.vectorDocId!))!)
     expect(firstDoc.metadata['valid_to']).toBeNull() // still valid
     // second doc exists and is valid
-    const secondDoc = vs.get(second.vectorDocId!)!
+    const secondDoc = ((await vs.get(second.vectorDocId!))!)
     expect(secondDoc.metadata['valid_to']).toBeNull()
   })
 
@@ -110,7 +110,7 @@ describe('bi-temporal retain()', () => {
     })
 
     for (const c of r.conflicts) {
-      const existing = vs.get(c.existingId)
+      const existing = await vs.get(c.existingId)
       expect(existing?.metadata['valid_to']).toBeFalsy()
     }
   })

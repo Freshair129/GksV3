@@ -80,7 +80,12 @@ export interface VectorBackend {
     patches: ReadonlyArray<{ id: string; patch: Partial<VectorMetadata> }>,
   ): Promise<Array<VectorDoc | null>>
 
-  get(id: string): VectorDoc | undefined
+  /**
+   * Lookup by ID. Memory-resident backends resolve immediately; DB-backed
+   * backends issue a query. Returns undefined for unknown IDs (never throws
+   * for a missing row).
+   */
+  get(id: string): Promise<VectorDoc | undefined>
 
   clear(): Promise<void>
 

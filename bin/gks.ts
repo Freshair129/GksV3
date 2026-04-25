@@ -28,10 +28,12 @@ import { parseArgs } from 'node:util'
 
 import {
   MemoryStore,
+  gksLayout,
   type Namespace,
 } from '../src/memory/index.js'
 import { recall, retain, reflect } from '../src/memory/api.js'
 import { createLogger } from '../src/lib/logger.js'
+import { truncate } from '../src/lib/text.js'
 
 const log = createLogger('cli:gks')
 
@@ -264,13 +266,14 @@ async function cmdReflect(argv: string[]): Promise<void> {
 async function cmdInit(argv: string[]): Promise<void> {
   const { values } = parseArgs({ args: argv, options: GLOBAL_OPTIONS })
   const flags = readGlobals(values)
+  const layout = gksLayout(flags.root)
   const dirs = [
-    join(flags.root, '.brain', 'msp', 'projects', 'evaAI', 'memory'),
-    join(flags.root, '.brain', 'msp', 'projects', 'evaAI', 'session'),
-    join(flags.root, '.brain', 'msp', 'projects', 'evaAI', 'inbound'),
-    join(flags.root, '.brain', 'msp', 'projects', 'evaAI', 'vector'),
-    join(flags.root, '.brain', 'msp', 'projects', 'evaAI', 'audit'),
-    join(flags.root, 'gks', '00_index'),
+    layout.memory,
+    layout.session,
+    layout.inbound,
+    layout.vector,
+    layout.audit,
+    join(layout.gks, '00_index'),
   ]
   for (const d of dirs) await mkdir(d, { recursive: true })
   emit(flags, { ok: true, root: flags.root, dirs }, () => {
@@ -363,10 +366,6 @@ function readPositionalOrStdin(positionals: string[], op: string): string {
   // Synchronous stdin read — small inputs; CLI agents usually pipe one line.
   const buf = readFileSync(0)
   return buf.toString('utf8').trim()
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + '…'
 }
 
 function printUsage(): void {

@@ -20,10 +20,9 @@ import type {
   RetrievalOptions,
   RetrievalResult,
   TraceStep,
-  VectorMetadata,
 } from './types.js'
 
-import { applyNamespace, type MemoryStore } from './index.js'
+import { applyNamespace, namespaceAsFilter, type MemoryStore } from './index.js'
 import {
   Consolidator,
   type ConsolidationInput,
@@ -177,17 +176,13 @@ async function resolveConflicts(
 
   // Scope conflict-detection to the same namespace — tenant A's retain
   // shouldn't supersede tenant B's docs.
-  const nsFilter: Partial<VectorMetadata> = {}
-  if (effectiveNs.tenant_id !== undefined) nsFilter.tenant_id = effectiveNs.tenant_id
-  if (effectiveNs.user_id !== undefined) nsFilter.user_id = effectiveNs.user_id
-  if (effectiveNs.session_id !== undefined) nsFilter.session_id = effectiveNs.session_id
-  if (effectiveNs.agent_id !== undefined) nsFilter.agent_id = effectiveNs.agent_id
+  const nsFilter = namespaceAsFilter(effectiveNs)
 
   try {
     const hits = await vectorStore.search(queryVector, {
       topK: 5,
       scoreThreshold: Math.min(0.8, threshold - 0.05),
-      ...(Object.keys(nsFilter).length > 0 ? { filter: nsFilter } : {}),
+      ...(nsFilter ? { filter: nsFilter } : {}),
     })
 
     for (const h of hits) {

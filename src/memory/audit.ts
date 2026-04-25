@@ -20,6 +20,7 @@ import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { appendJsonl } from '../lib/jsonl.js'
+import { truncate } from '../lib/text.js'
 import { createLogger } from '../lib/logger.js'
 import type { Namespace } from './types.js'
 
@@ -140,6 +141,3 @@ export class AuditLog {
   }
 }
 
-function truncate(s: string, max: number): string {
-  return s.length <= max ? s : s.slice(0, max - 1) + '…'
-}

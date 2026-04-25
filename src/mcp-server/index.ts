@@ -24,6 +24,7 @@ import { z } from 'zod'
 
 import type { MemoryStore } from '../memory/index.js'
 import { recall, retain, reflect } from '../memory/api.js'
+import { ATOMIC_ID_PATTERN } from '../memory/atomic-id.js'
 import type { Namespace } from '../memory/types.js'
 import { createLogger } from '../lib/logger.js'
 
@@ -134,7 +135,7 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
       description:
         'Exact-id lookup against the atomic index. Returns the canonical note (title + body + frontmatter) or null. Never approximates — use gks_recall for semantic queries.',
       inputSchema: {
-        id: z.string().regex(ATOMIC_ID).describe('Atomic ID, e.g. CONCEPT--EVA-TRI-BRAIN'),
+        id: z.string().regex(ATOMIC_ID_PATTERN).describe('Atomic ID, e.g. CONCEPT--EVA-TRI-BRAIN'),
       },
     },
     async (args) => {
@@ -150,7 +151,7 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
       description:
         'Propose a new atomic note for the inbound queue. Reviewers later promote it into the canonical gks/ tree. NEVER writes to gks/ directly.',
       inputSchema: {
-        proposed_id: z.string().regex(ATOMIC_ID).describe('TYPE--SLUG format.'),
+        proposed_id: z.string().regex(ATOMIC_ID_PATTERN).describe('TYPE--SLUG format.'),
         phase: z.number().int().min(0).max(5),
         type: z.string(),
         title: z.string(),
@@ -240,10 +241,6 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
 
   return server
 }
-
-// Atomic id pattern — single source so MCP tools, CLI, inbound queue, and
-// in-memory validators all agree.
-const ATOMIC_ID = /^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_-]*$/
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 

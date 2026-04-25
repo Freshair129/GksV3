@@ -47,6 +47,7 @@ import {
 import { CostTracker, type CostTrackerOptions } from '../lib/cost-tracker.js'
 import { EpisodicLayer } from './episodic.js'
 import { InboundQueue } from './inbound.js'
+import { ATOMIC_ID_PATTERN, isAtomicId } from './atomic-id.js'
 import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
 import {
   withCache,
@@ -179,28 +180,24 @@ export class MemoryStore {
 
   constructor(opts: MemoryStoreOptions) {
     this.root = resolve(opts.root)
+    const layout = gksLayout(this.root)
 
     this.atomic = new AtomicLayer({
-      indexPath: opts.atomicIndexPath ?? join(this.root, 'gks', '00_index', 'atomic_index.jsonl'),
-      gksRoot: join(this.root, 'gks'),
+      indexPath: opts.atomicIndexPath ?? layout.atomicIndex,
+      gksRoot: layout.gks,
     })
 
-    this.vectorDir =
-      opts.vectorDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'vector')
-
-    this.sessionDir =
-      opts.sessionDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'session')
+    this.vectorDir = opts.vectorDir ?? layout.vector
+    this.sessionDir = opts.sessionDir ?? layout.session
 
     this.episodic = new EpisodicLayer({
-      memoryDir:
-        opts.episodicDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'memory'),
+      memoryDir: opts.episodicDir ?? layout.memory,
       sessionDir: this.sessionDir,
     })
 
     this.inbound = new InboundQueue({
-      inboundDir:
-        opts.inboundDir ?? join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'inbound'),
-      gksRoot: join(this.root, 'gks'),
+      inboundDir: opts.inboundDir ?? layout.inbound,
+      gksRoot: layout.gks,
     })
 
     this.vectorScoreThreshold = opts.vectorScoreThreshold ?? 0.35
@@ -229,9 +226,7 @@ export class MemoryStore {
       this.audit = null
     } else {
       this.audit = new AuditLog({
-        dir:
-          opts.audit?.dir ??
-          join(this.root, '.brain', 'msp', 'projects', 'evaAI', 'audit'),
+        dir: opts.audit?.dir ?? layout.audit,
         ...(opts.audit?.onEvent ? { onEvent: opts.audit.onEvent } : {}),
         ...(opts.audit?.maxQueryLength !== undefined
           ? { maxQueryLength: opts.audit.maxQueryLength }
@@ -576,10 +571,39 @@ export class MemoryStore {
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
-const ATOMIC_ID = /^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_\-]*$/
-
 function looksLikeAtomicId(s: string): boolean {
-  return ATOMIC_ID.test(s.trim())
+  return isAtomicId(s.trim())
+}
+
+/**
+ * Standard on-disk layout for the EVA Tri-Brain memory fabric. Single source
+ * of truth so the CLI scaffold, MCP server, and MemoryStore defaults all agree
+ * on `<root>/.brain/msp/projects/evaAI/...`.
+ */
+export function gksLayout(root: string): {
+  root: string
+  brain: string
+  vector: string
+  session: string
+  memory: string
+  inbound: string
+  audit: string
+  gks: string
+  atomicIndex: string
+} {
+  const r = resolve(root)
+  const brain = join(r, '.brain', 'msp', 'projects', 'evaAI')
+  return {
+    root: r,
+    brain,
+    vector: join(brain, 'vector'),
+    session: join(brain, 'session'),
+    memory: join(brain, 'memory'),
+    inbound: join(brain, 'inbound'),
+    audit: join(brain, 'audit'),
+    gks: join(r, 'gks'),
+    atomicIndex: join(r, 'gks', '00_index', 'atomic_index.jsonl'),
+  }
 }
 
 /**
@@ -587,7 +611,7 @@ function looksLikeAtomicId(s: string): boolean {
  * keys that are actually set, so an empty namespace produces no filter
  * (returns undefined).
  */
-function namespaceAsFilter(ns: Namespace): Partial<VectorMetadata> | undefined {
+export function namespaceAsFilter(ns: Namespace): Partial<VectorMetadata> | undefined {
   const out: Record<string, string> = {}
   if (ns.tenant_id !== undefined) out['tenant_id'] = ns.tenant_id
   if (ns.user_id !== undefined) out['user_id'] = ns.user_id
@@ -720,6 +744,7 @@ export { createPgGraphBackend } from './graph/pg.js'
 export type { PgGraphBackendOptions } from './graph/pg.js'
 export { EpisodicLayer } from './episodic.js'
 export { InboundQueue } from './inbound.js'
+export { ATOMIC_ID_PATTERN, isAtomicId, assertAtomicId } from './atomic-id.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'
 export type { Embedder, EmbedderOptions, EmbedderInfo } from './vector/embedder.js'
 export { createReranker, rerank } from './rerank.js'

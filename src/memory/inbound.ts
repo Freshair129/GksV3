@@ -14,6 +14,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { InboundArtifact, InboundReceipt, Phase } from './types.js'
+import { isAtomicId } from './atomic-id.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('inbound')
@@ -87,11 +88,9 @@ function renderArtifactMarkdown(a: InboundArtifact, reviewId: string): string {
 }
 
 function validateId(id: string): void {
-  // Pattern from GKS: TYPE--SLUG, e.g. CONCEPT--EVA-TRI-BRAIN.
-  if (!/^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_\-]*$/.test(id)) {
+  if (!isAtomicId(id)) {
     throw new Error(
-      `InboundQueue: invalid proposed_id '${id}'. ` +
-        `Must match ^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_\\-]*$ (e.g. CONCEPT--FOO-BAR).`,
+      `InboundQueue: invalid proposed_id '${id}'. Must match TYPE--SLUG (e.g. CONCEPT--FOO-BAR).`,
     )
   }
 }

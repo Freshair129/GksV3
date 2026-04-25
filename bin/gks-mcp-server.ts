@@ -30,13 +30,14 @@
  *   GKS_MCP_ROOT, GKS_MCP_TENANT, ... env vars all map to the same flags.
  */
 
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import {
   MemoryStore,
   createHnswBackend,
   createPgvectorBackend,
+  gksLayout,
   type Namespace,
   type VectorBackendFactory,
 } from '../src/memory/index.js'
@@ -100,9 +101,10 @@ async function main(): Promise<void> {
     const pool = new pg.Pool({ connectionString: opts.pgUrl })
     vectorBackend = (name, embedder) => createPgvectorBackend({ pool, name, embedder })
   } else if (opts.hnsw) {
+    const layout = gksLayout(opts.root)
     vectorBackend = (name, embedder) =>
       createHnswBackend({
-        basePath: resolve(opts.root, '.brain/msp/projects/evaAI/vector', name),
+        basePath: join(layout.vector, name),
         embedder,
         name,
       })

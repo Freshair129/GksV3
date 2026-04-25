@@ -22,6 +22,7 @@ import type {
   SummaryExtractor,
 } from './consolidator.js'
 import type { InboundArtifact, Phase, TraceStep } from './types.js'
+import { isAtomicId } from './atomic-id.js'
 import { isPresent, isRecord, toStringArray } from '../lib/guards.js'
 import { withRetry } from '../lib/retry.js'
 import type { CostTracker } from '../lib/cost-tracker.js'
@@ -334,7 +335,7 @@ function validateExtractorOutput(x: unknown): ParsedExtractorOutput | null {
       const phaseRaw = typeof p['phase'] === 'number' ? p['phase'] : 1
       const confidence = typeof p['confidence'] === 'number' ? p['confidence'] : undefined
       if (!proposed_id || !title || !body) return null
-      if (!/^[A-Z][A-Z0-9_]*--[A-Z0-9][A-Z0-9_\-]*$/.test(proposed_id)) return null
+      if (!isAtomicId(proposed_id)) return null
       const phase = (phaseRaw >= 0 && phaseRaw <= 5 ? phaseRaw : 1) as Phase
       return {
         proposed_id,

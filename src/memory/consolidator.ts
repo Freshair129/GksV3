@@ -20,6 +20,7 @@ import type {
   Phase,
   TraceStep,
 } from './types.js'
+import { truncate } from '../lib/text.js'
 
 export interface ConsolidationInput {
   sessionId: string
@@ -230,10 +231,6 @@ function toAtomicId(prefix: string, term: string): string {
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + '…'
 }
 
 function clamp01(x: number): number {

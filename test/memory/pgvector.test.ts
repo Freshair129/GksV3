@@ -5,7 +5,6 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import type { Pool, PoolClient, QueryResult } from 'pg'
 
 import {
   createPgvectorBackend,
@@ -13,49 +12,7 @@ import {
   pgToVector,
   mockEmbedder,
 } from '../../src/memory/index.js'
-
-interface RecordedQuery {
-  text: string
-  params?: unknown[]
-}
-
-function makeMockPool(rows: Record<string, unknown[]> = {}): {
-  pool: Pool
-  queries: RecordedQuery[]
-} {
-  const queries: RecordedQuery[] = []
-
-  const matchRowsFor = (sql: string): unknown[] => {
-    for (const [needle, candidate] of Object.entries(rows)) {
-      if (sql.includes(needle)) return candidate
-    }
-    return []
-  }
-
-  const fakeQuery = async (sql: unknown, params?: unknown[]): Promise<QueryResult> => {
-    const text = typeof sql === 'string' ? sql : ''
-    queries.push({ text, ...(params ? { params } : {}) })
-    return {
-      rows: matchRowsFor(text) as Record<string, unknown>[],
-      rowCount: matchRowsFor(text).length,
-      command: 'SELECT',
-      oid: 0,
-      fields: [],
-    } as unknown as QueryResult
-  }
-
-  const fakeClient: Partial<PoolClient> = {
-    query: fakeQuery as unknown as PoolClient['query'],
-    release: () => {},
-  }
-
-  const fakePool: Partial<Pool> = {
-    query: fakeQuery as unknown as Pool['query'],
-    connect: async () => fakeClient as PoolClient,
-  }
-
-  return { pool: fakePool as Pool, queries }
-}
+import { makeMockPool } from '../fixtures/mock-pg-pool.js'
 
 describe('vectorToPg / pgToVector', () => {
   it('round-trips an array', () => {

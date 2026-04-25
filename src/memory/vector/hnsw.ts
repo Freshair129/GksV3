@@ -41,7 +41,14 @@ import type {
   VectorSearchOptions,
 } from '../types.js'
 import type { Embedder } from './embedder.js'
-import { appendJsonl, fileExists, forEachJsonl, readJsonSafe, writeJson } from '../../lib/jsonl.js'
+import {
+  appendJsonl,
+  fileExists,
+  forEachJsonl,
+  readJsonSafe,
+  writeJson,
+  writeJsonl,
+} from '../../lib/jsonl.js'
 import { createLogger } from '../../lib/logger.js'
 
 const log = createLogger('vector:hnsw')
@@ -428,17 +435,17 @@ class HnswBackend implements VectorBackend {
   }
 
   private async rewriteMetadata(): Promise<void> {
-    // For the metadata-only patch path. We don't expose the bulk-write helper
-    // here because the metadata file is source-of-truth for IDs/labels.
-    const lines: string[] = []
+    // For the metadata-only patch path. The metadata file is source-of-truth
+    // for IDs/labels — we stream-rewrite it rather than rebuild in memory.
+    const rows: ReturnType<typeof stripVector>[] = []
     for (const id of this.labelToId) {
       if (!id) continue
       const doc = this.byId.get(id)
       if (!doc) continue
       const label = this.idToLabel.get(id)!
-      lines.push(JSON.stringify(stripVector(doc, label)))
+      rows.push(stripVector(doc, label))
     }
-    await writeFile(this.metaPath, lines.join('\n') + (lines.length ? '\n' : ''), 'utf8')
+    await writeJsonl(this.metaPath, rows)
   }
 
   private async persistIndex(): Promise<void> {

@@ -45,6 +45,12 @@ import {
   type ObsidianSearchHit,
 } from './obsidian-mcp.js'
 import { createLogger } from '../lib/logger.js'
+import {
+  METRIC_NAMES,
+  incrementCounter,
+  recordHistogram,
+  withSpan,
+} from '../lib/telemetry.js'
 
 const log = createLogger('memory')
 
@@ -287,6 +293,22 @@ export class MemoryStore {
    * parallel, merges, dedupes, reranks, and caps to maxTotal.
    */
   async retrieve(query: string, opts: RetrievalOptions = {}): Promise<RetrievalResult> {
+    return withSpan(
+      'gks.recall',
+      {
+        'gks.query_length': query.length,
+        'gks.strategy': opts.strategy ?? 'multi',
+        'gks.top_k': opts.topK ?? 5,
+      },
+      (span) => this.retrieveInner(query, opts, span),
+    )
+  }
+
+  private async retrieveInner(
+    query: string,
+    opts: RetrievalOptions,
+    span: { setAttributes(attrs: Record<string, unknown>): unknown },
+  ): Promise<RetrievalResult> {
     const started = Date.now()
     const strategy = opts.strategy ?? 'multi'
     const topK = opts.topK ?? 5
@@ -381,11 +403,21 @@ export class MemoryStore {
         )
       : candidates
 
+    const finalHits = reranked.slice(0, dedupMax)
+    const tookMs = Date.now() - started
+    span.setAttributes({
+      'gks.hit_count': finalHits.length,
+      'gks.candidate_count': candidates.length,
+      'gks.took_ms': tookMs,
+    })
+    recordHistogram(METRIC_NAMES.recallLatency, tookMs, { strategy })
+    incrementCounter(METRIC_NAMES.recallHits, finalHits.length, { strategy })
+
     return {
       query,
-      hits: reranked.slice(0, dedupMax),
+      hits: finalHits,
       strategy,
-      tookMs: Date.now() - started,
+      tookMs,
     }
   }
 

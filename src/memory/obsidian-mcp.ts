@@ -29,6 +29,7 @@
  */
 
 import { normalizeText } from '../lib/text.js'
+import { METRIC_NAMES, incrementCounter } from '../lib/telemetry.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('obsidian')
@@ -352,8 +353,10 @@ export function withCache(
       // Reinsert to mark as recently-used.
       cache.delete(key)
       cache.set(key, hit)
+      incrementCounter(METRIC_NAMES.cacheHits, 1, { cache: 'obsidian' })
       return Promise.resolve(hit.value as T)
     }
+    incrementCounter(METRIC_NAMES.cacheMisses, 1, { cache: 'obsidian' })
     return load().then((value) => {
       touch(key, value)
       return value

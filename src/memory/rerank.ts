@@ -22,6 +22,7 @@
 
 import { tokenize } from '../lib/text.js'
 import { withRetry } from '../lib/retry.js'
+import { METRIC_NAMES, recordHistogram } from '../lib/telemetry.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('memory:rerank')
@@ -164,33 +165,48 @@ function lexicalReranker(): Reranker {
 // ─── http (BGE rerank-compatible) ──────────────────────────────────────────
 
 function httpReranker(endpoint: string, apiKey?: string): Reranker {
+  const host = new URL(endpoint).host
   return {
-    name: `http:${new URL(endpoint).host}`,
+    name: `http:${host}`,
     async score(query, texts) {
       const headers: Record<string, string> = { 'content-type': 'application/json' }
       if (apiKey) headers['authorization'] = `Bearer ${apiKey}`
 
-      return withRetry(
-        async () => {
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ query, documents: [...texts] }),
-          })
-          if (!res.ok) {
-            const body = await res.text().catch(() => '')
-            throw new Error(`rerank http ${res.status}: ${body.slice(0, 200)}`)
-          }
-          const data = (await res.json()) as {
-            scores?: number[]
-            results?: Array<{ score: number }>
-          }
-          if (Array.isArray(data.scores)) return data.scores
-          if (Array.isArray(data.results)) return data.results.map((r) => r.score)
-          throw new Error("rerank http: response missing 'scores' or 'results'")
-        },
-        { label: 'rerank-http' },
-      )
+      const start = Date.now()
+      let outcome: 'ok' | 'error' = 'ok'
+      try {
+        return await withRetry(
+          async () => {
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ query, documents: [...texts] }),
+            })
+            if (!res.ok) {
+              const body = await res.text().catch(() => '')
+              throw new Error(`rerank http ${res.status}: ${body.slice(0, 200)}`)
+            }
+            const data = (await res.json()) as {
+              scores?: number[]
+              results?: Array<{ score: number }>
+            }
+            if (Array.isArray(data.scores)) return data.scores
+            if (Array.isArray(data.results)) return data.results.map((r) => r.score)
+            throw new Error("rerank http: response missing 'scores' or 'results'")
+          },
+          { label: 'rerank-http' },
+        )
+      } catch (err) {
+        outcome = 'error'
+        throw err
+      } finally {
+        recordHistogram(METRIC_NAMES.rerankLatency, Date.now() - start, {
+          backend: 'http',
+          host,
+          batch: String(texts.length),
+          outcome,
+        })
+      }
     },
   }
 }

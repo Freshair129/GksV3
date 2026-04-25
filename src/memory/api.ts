@@ -29,6 +29,12 @@ import {
   type ConsolidatorOptions,
 } from './consolidator.js'
 import { createLogger } from '../lib/logger.js'
+import {
+  METRIC_NAMES,
+  incrementCounter,
+  recordHistogram,
+  withSpan,
+} from '../lib/telemetry.js'
 
 const log = createLogger('memory:api')
 
@@ -37,6 +43,22 @@ const log = createLogger('memory:api')
 export async function retain(
   store: MemoryStore,
   input: RetainInput,
+): Promise<RetainResult> {
+  return withSpan(
+    'gks.retain',
+    {
+      'gks.content_length': input.content.length,
+      'gks.session_id': input.sessionId ?? '',
+      'gks.policy': input.conflictPolicy ?? 'auto',
+    },
+    (span) => retainInner(store, input, span),
+  )
+}
+
+async function retainInner(
+  store: MemoryStore,
+  input: RetainInput,
+  span: { setAttributes(attrs: Record<string, unknown>): unknown },
 ): Promise<RetainResult> {
   const now = new Date().toISOString()
   const validFrom = input.validFrom ?? now
@@ -88,6 +110,16 @@ export async function retain(
     const receipt = await store.proposeInbound(proposed)
     inboundPath = receipt.path
   }
+
+  span.setAttributes({
+    'gks.conflicts': conflicts.length,
+    'gks.invalidated': toInvalidate.length,
+    'gks.proposed_inbound': inboundPath !== undefined,
+  })
+  incrementCounter(METRIC_NAMES.retainDocs, 1, {
+    backend: vectorStore.name,
+    has_conflict: String(conflicts.length > 0),
+  })
 
   return {
     vectorDocId: doc.id,

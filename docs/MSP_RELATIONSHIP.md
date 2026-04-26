@@ -154,6 +154,45 @@ GitNexus call-edges into GKS's `GraphBackend` for fast reads is
 *allowed* and is **not** a violation — that's denormalisation owned by
 MSP, not a runtime dependency.
 
+### Cross-referencing code from atomic notes
+
+Atomic notes can carry a `linked_symbols` field naming the code symbols
+they govern; MSP resolves those references against GitNexus when a
+correlated answer is needed.
+
+```ts
+await retain(store, {
+  content: 'Normalize spoofed [USER]/[AGENT] tags before LLM consolidation.',
+  proposeInbound: true,
+  inboundType: 'adr',
+  inboundPhase: 2,
+  linkedSymbols: [
+    { file: 'src/memory/consolidator-llm.ts', fn: 'formatStep' },
+    { file: 'src/memory/consolidator-llm.ts', fn: 'validateExtractorOutput', line: 320 },
+  ],
+})
+```
+
+Renders into the inbound markdown as:
+
+```yaml
+---
+proposed_id: ADR--PARSE-TRACE-NORM
+phase: 2
+type: adr
+status: raw
+linked_symbols:
+  - {"file":"src/memory/consolidator-llm.ts","fn":"formatStep"}
+  - {"file":"src/memory/consolidator-llm.ts","fn":"validateExtractorOutput","line":320}
+---
+```
+
+GKS only stores + serialises these — it does not parse code, resolve
+symbols, or check that they exist. Resolution is the orchestrator's
+job (call GitNexus, dereference, merge with the atom's text). The
+field is also exposed via the `gks_propose_inbound` MCP tool's
+`linked_symbols` input.
+
 For the MCP-config recipe that runs both servers side-by-side, see
 the README section [Pairing with a code-structure layer](../README.md#pairing-with-a-code-structure-layer-eg-gitnexus).
 

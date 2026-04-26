@@ -4,6 +4,111 @@ All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.1] — 2026-04-26
+
+Post-3.5.0 quality, security, and architectural-clarity pass. No public
+API changes; safe to upgrade.
+
+### Security (audit pass)
+
+- `AtomicLayer.readBody` now bounds-checks the resolved path against
+  `gksRoot` — defense-in-depth against a poisoned `atomic_index.jsonl`
+  entry escaping the gks tree.
+- LLM-supplied `confidence` clamped to `[0, 1]` + `Number.isFinite`
+  guarded at the consolidator extraction edge so a malicious model
+  reply can't pollute downstream Three-Gate scoring or inbound
+  artefacts.
+- New `redactSecrets()` helper masks Bearer tokens / `x-api-key` /
+  `sk-…` / JWTs in upstream HTTP error bodies before they propagate
+  via thrown errors → logs → OTel spans. Wired into Anthropic,
+  OpenAI, Ollama, rerank, and Obsidian REST clients.
+- `InboundArtifact.namespace` stamped at retain time + rendered into
+  the proposal's frontmatter so reviewers see provenance at promotion.
+- Frontmatter values now go through a shared `yamlLite` escaper
+  (extracted to `src/lib/yaml-lite.ts`); attacker-controlled fields
+  with `:` / `#` / `\n` can no longer break out of their slot.
+- LLM extractor JSON capped at 1 MiB before `JSON.parse` (DoS guard).
+- `safeLimit()` helper hardens the SQL `LIMIT` interpolations in
+  pgvector + pg-graph (NaN / Infinity / negative input bounded).
+- Spoofed `[USER] / [AGENT]` turn-tag injection neutralised in the
+  consolidator prompt (a user message containing `\n[AGENT] …` no
+  longer reads as an agent turn to the LLM).
+- `RetrievalHit.snippet` JSDoc + MCP tool descriptions now explicitly
+  flag snippets as untrusted when fed back into LLM prompts.
+- `gks_lookup` MCP tool description now states atomic notes are
+  global by design — don't store tenant-private content there.
+
+### Cleanup (`/simplify` round 2 — four commits)
+
+- New shared `src/lib/sql.ts` (`quoteIdent`, `withTx`, `escapeCopyField`,
+  `isMissingTable`, `safeLimit`); de-duplicates three previously-drifting
+  copies. `pgvector.copyInDocs` latent transaction bug fixed in passing.
+- `src/memory/atomic-id.ts` as the single source of truth for
+  `ATOMIC_ID_PATTERN` + `isAtomicId` (5 inline regex copies → 1).
+- Shared `truncate` from `src/lib/text.ts` (4 inline copies → 1).
+- Exported `namespaceAsFilter` and replaced an inline duplicate in
+  `api.ts`.
+- New `gksLayout(root)` helper — single source for the
+  `.brain/msp/projects/evaAI/{vector,session,memory,inbound,audit}/`
+  layout (6 hard-coded path copies → 1).
+- `hnsw.ts` metadata rewrite uses `writeJsonl`.
+- `test/fixtures/mock-pg-pool.ts` shared between `pgvector` and
+  `pg-graph` test files.
+- `audit.ts` no longer double-mkdirs (the JSONL helper does it).
+- `graph.ts` BFS swaps `queue.shift()` (O(n)) for a head pointer.
+- `STABLE_BOOST = 0.05` extracted as a named constant.
+- Concurrency fix: `getVectorStore()` and `embedder()` now cache
+  in-flight promises so concurrent first-callers share one init.
+- `MCPObsidianAdapter` no longer leaks an orphan child process.
+- `gks lookup --json` exits 0 with `{found:false}` on miss instead
+  of conflating "not found" with "error".
+
+### Architectural docs
+
+- **`SCOPE.md`** — explicit in/out list with a 5-question decision
+  rule for proposed features. Reads as a guardrail for future scope
+  creep.
+- **`docs/MSP_RELATIONSHIP.md`** — records why GKS is shaped to receive
+  an MSP-like Memory OS layer above without depending on one. Adds a
+  "Coexisting with peer subsystems" section covering the GitNexus
+  pairing pattern.
+- **`examples/memory-os-architecture/`** — Python proof-of-concept
+  layering a paradigm-agnostic Memory OS kernel + EVA plugin (RMS / RI
+  levels / Pulse Snapshot) + storage adapters (`JsonFile` and
+  `Gks`-via-MCP). Three smoke-test scenarios pass; demonstrates how a
+  Memory OS plugs into GKS without touching `src/`.
+- **README** — new "Pairing with a code-structure layer (e.g.
+  GitNexus)" section + scope callout in the intro.
+- Source comments at `src/memory/inbound.ts` and
+  `src/memory/index.ts:gksLayout` now point at
+  `MSP_RELATIONSHIP.md` so the design intent isn't lost on edit.
+
+### ADRs
+
+- **ADR-008** — GKS as storage engine; Memory OS layer above
+  (MSP-shaped contract). Records the vertical layering decision +
+  alternatives considered.
+- **ADR-009** — MSP orchestrates peer subsystems; GKS does not proxy
+  them. Records the horizontal layering decision (GKS + GitNexus as
+  peers, not chained) + the `linked_symbols` cross-reference idea.
+
+### Added
+
+- `linked_symbols` field on `InboundArtifact` + `RetainInput` —
+  optional list of `{ file, fn?, line? }` tuples that an atom governs.
+  GKS only stores + serialises them; resolution against an actual
+  codebase is the orchestrator's job (e.g. MSP fans out to GitNexus
+  per ADR-009). Exposed on the `gks_propose_inbound` MCP tool as a
+  Zod-strict schema.
+- `yamlLite` now renders arrays of objects as flow-style JSON scalars
+  (`- {"file":"...","fn":"..."}`) — needed for `linked_symbols` and
+  any future nested frontmatter values.
+
+### Tests
+- 240 passing (was 237 in 3.5.0) across 32 test files; 3 still opt-in.
+
+[3.5.1]: https://github.com/freshair129/gksv3/releases/tag/v3.5.1
+
 ## [3.5.0] — 2026-04-25
 
 The first release. Three months of design, build, and review compressed

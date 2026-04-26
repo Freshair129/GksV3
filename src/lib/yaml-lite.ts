@@ -21,7 +21,16 @@ export function yamlLite(obj: Record<string, unknown>): string {
       if (v.length === 0) lines.push(`${k}: []`)
       else {
         lines.push(`${k}:`)
-        for (const item of v) lines.push(`  - ${yamlScalar(item)}`)
+        for (const item of v) {
+          // Objects in arrays render as flow-style JSON scalars — still
+          // valid YAML, round-trips through any YAML parser, keeps nested
+          // structures readable on one line per item.
+          if (item !== null && typeof item === 'object') {
+            lines.push(`  - ${JSON.stringify(item)}`)
+          } else {
+            lines.push(`  - ${yamlScalar(item)}`)
+          }
+        }
       }
     } else if (typeof v === 'object') {
       lines.push(`${k}: ${JSON.stringify(v)}`)

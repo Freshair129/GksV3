@@ -246,6 +246,13 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
   from EVA-specific affect/RI behaviour (plugin) from storage (file or
   GKS-MCP). Useful if you're building an MSP-style "kernel" that uses
   GKS as its backend.
+- [`examples/gitnexus-graph-cache/`](./examples/gitnexus-graph-cache/) —
+  the **GitNexus → `GraphStore` denormalisation pattern** that
+  [ADR-009](./docs/adr/009-msp-as-orchestrator.md) authorises. A small
+  TS adapter periodically lands an AST export into a GKS graph file so
+  reads serve from GKS without a GitNexus round-trip. Includes
+  bi-temporal "what did the call graph look like on date X?" via
+  `addEdge({ supersede: true })`.
 
 ## Development
 

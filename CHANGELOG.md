@@ -105,6 +105,13 @@ API changes; safe to upgrade.
 - `yamlLite` now renders arrays of objects as flow-style JSON scalars
   (`- {"file":"...","fn":"..."}`) — needed for `linked_symbols` and
   any future nested frontmatter values.
+- `examples/gitnexus-graph-cache/` — reference adapter for the
+  GitNexus → `GraphStore` denormalisation pattern that ADR-009
+  authorises. `sync.ts` lands an AST export into a GKS graph JSONL
+  with stamped provenance (`source: 'gitnexus'`, `synced_at`,
+  `codebase_sha`). `query-cached.ts` walks outbound or inbound from a
+  seed symbol with optional `--as-of` for bi-temporal reasoning. End-
+  to-end smoke test (`smoke-test.ts`, 7 assertions) passes.
 
 ### Tests
 - 241 passing (was 237 in 3.5.0) across 32 test files; 3 still opt-in.

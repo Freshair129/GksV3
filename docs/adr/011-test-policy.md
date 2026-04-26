@@ -127,7 +127,7 @@ For changes that don't add surface (refactor, perf, doc):
 ## What this changes in practice
 
 - `CHANGELOG.md` "Tests" footer — every release section already lists test count. This ADR makes that load-bearing: a release that drops the test count without explanation is a regression.
-- PR template (when it exists) — the surface-coverage checklist becomes the testing section.
+- PR template — `.github/PULL_REQUEST_TEMPLATE.md` encodes the surface-coverage + verification checklists.
 - New surface review — reviewers reject PRs that ship public API without at least the happy-path + edge-case + failure-mode trio.
 - `npm test` is the authoritative command. Don't add new test scripts; if you need a different invocation, use `vitest run <pattern>` directly.
 

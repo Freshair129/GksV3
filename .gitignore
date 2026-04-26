@@ -13,6 +13,10 @@ coverage/
 .brain/**/vector/_manifest.json
 .brain/**/logs/
 .brain/**/session/
+.brain/**/audit/
+
+# example smoke-test side effects
+examples/**/fixtures/.brain/
 
 # benchmarks cache
 benchmarks/.cache/

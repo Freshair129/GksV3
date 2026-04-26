@@ -18,3 +18,7 @@ coverage/
 benchmarks/.cache/
 benchmarks/reports/
 benchmarks/.cache/
+
+# Python bytecode (Memory OS architecture example)
+__pycache__/
+*.pyc

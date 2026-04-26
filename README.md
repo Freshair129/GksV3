@@ -224,6 +224,15 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 - [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) — schema versioning policy
 - [`docs/adr/`](./docs/adr/) — architecture decision records (7 entries)
 
+### Reference architectures
+
+- [`examples/memory-os-architecture/`](./examples/memory-os-architecture/) —
+  Python proof-of-concept layering a paradigm-agnostic **Memory OS** on top
+  of GKS. Shows how to separate session/cascade/sandbox logic (kernel)
+  from EVA-specific affect/RI behaviour (plugin) from storage (file or
+  GKS-MCP). Useful if you're building an MSP-style "kernel" that uses
+  GKS as its backend.
+
 ## Development
 
 ```sh

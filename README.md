@@ -225,6 +225,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 ## Documentation
 
 - [`SCOPE.md`](./SCOPE.md) — **what GKS is and isn't** (read first if proposing features)
+- [`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md) — why GKS is paired with MSP-shaped Memory OS layers + the contract between them
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — layer model + sequence diagrams
 - [`docs/ULTRAPLAN.md`](./docs/ULTRAPLAN.md) — multi-phase roadmap
 - [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — running real-scale evals

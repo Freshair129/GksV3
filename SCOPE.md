@@ -110,7 +110,11 @@ move these into `src/`. Pointers to where they belong follow each item.
 - **Stakes-level / confidence-locking model** — EVA-specific epistemic
   workflow.
 
-→ Reference architecture: [`examples/memory-os-architecture/`](../examples/memory-os-architecture/)
+→ Background: [`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md)
+records why GKS was designed to *receive* an MSP-shaped layer above
+without implementing one itself.
+
+→ Reference architecture: [`examples/memory-os-architecture/`](./examples/memory-os-architecture/)
 shows a paradigm-agnostic Memory OS that uses GKS as its storage backend.
 
 ### Workflow / governance → live in process docs and CI

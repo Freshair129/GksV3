@@ -8,6 +8,11 @@
  *   agent → proposeInbound() → .brain/msp/projects/evaAI/inbound/<id>.md
  *         → (human review, gks/scripts/promote.ts — not in scope for Phase 1)
  *         → gks/phase<N>/<type>/<slug>.md + atomic_index.jsonl update
+ *
+ * The write-protect on gks/ + the inbound-only API + the .brain/msp/...
+ * default layout exist specifically to leave room for an MSP-shaped
+ * Memory OS layer above this storage engine — see docs/MSP_RELATIONSHIP.md
+ * before relaxing any of these constraints.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'

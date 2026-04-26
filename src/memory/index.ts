@@ -592,6 +592,9 @@ function looksLikeAtomicId(s: string): boolean {
  * Standard on-disk layout for the EVA Tri-Brain memory fabric. Single source
  * of truth so the CLI scaffold, MCP server, and MemoryStore defaults all agree
  * on `<root>/.brain/msp/projects/evaAI/...`.
+ *
+ * The path shape is intentionally chosen to interop with MSP-shaped Memory OS
+ * layers (the canonical one being EVA's MSP). See docs/MSP_RELATIONSHIP.md.
  */
 export function gksLayout(root: string): {
   root: string

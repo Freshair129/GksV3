@@ -1,6 +1,6 @@
 {
   "name": "@evaai/gks",
-  "version": "3.5.2",
+  "version": "3.5.3",
   "description": "Genesis Knowledge System — a memory fabric for agentic AI built on the EVA Tri-Brain architecture. Four memory layers, bi-temporal versioning, multi-tenancy, OpenTelemetry, MCP server, and a CLI.",
   "type": "module",
   "license": "MIT",
@@ -92,6 +92,7 @@
     "bench:beam": "tsx benchmarks/beam.ts",
     "bench:sweep": "tsx scripts/bench/sweep.ts",
     "re-embed": "tsx scripts/msp/re-embed.ts",
+    "msp:index": "tsx scripts/msp/re-indexer.ts",
     "pg-migrate": "tsx scripts/msp/pg-migrate.ts",
     "gks-migrate": "tsx scripts/msp/gks-migrate.ts",
     "pg:up": "docker compose -f docker-compose.pg.yml up -d",

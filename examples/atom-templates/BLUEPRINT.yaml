@@ -1,0 +1,37 @@
+# BLUEPRINT — implementation plan (consumed by P3.5 microtask codegen).
+# YAML, not Markdown — kept as YAML so the codegen tooling can ingest
+# without prose stripping.
+
+metadata:
+  id: BLUEPRINT--FEAT-<NNN>
+  name: <human-readable>
+  module: <MOD-- this builds inside>
+  status: draft                 # draft | approved | implemented
+  version: 0.1.0
+  author: <MSP-USR-… or MSP-AGT-…>
+
+architectural_pattern:
+  pattern: repository|service|controller|adapter|...
+  layering: src/<framework-path>
+
+data_logic:
+  inputs: []
+  outputs: []
+  transformations: []
+
+geography:                      # 1:1 with src/ paths produced
+  components: []                # files this blueprint generates
+  repositories: []              # repository-pattern entry points
+  routes: []                    # route handlers (for web frameworks)
+
+api_contracts: []               # endpoint + request + response schema
+  # - endpoint: POST /things
+  #   request: { … }
+  #   response: { … }
+  #   errors: [400, 401, 422, 500]
+
+verification_plan:
+  automated:
+    - <unit / integration test ids>
+  manual:
+    - <reviewer checklist items>

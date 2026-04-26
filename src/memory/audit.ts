@@ -29,6 +29,7 @@ export type AuditOp =
   | 'retain'
   | 'recall'
   | 'lookup'
+  | 'lookup_by_symbol'
   | 'propose_inbound'
   | 'write_episodic'
   | 'patch_metadata'

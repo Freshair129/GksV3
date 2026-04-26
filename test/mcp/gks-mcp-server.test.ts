@@ -69,6 +69,7 @@ describe('gks-mcp-server', () => {
         'gks_retain',
         'gks_recall',
         'gks_lookup',
+        'gks_lookup_by_symbol',
         'gks_propose_inbound',
         'gks_reflect',
         'gks_recall_cross_namespace',
@@ -116,6 +117,44 @@ describe('gks-mcp-server', () => {
     const body = unpack<{ found: boolean; note: unknown }>(reply as ToolReply)
     expect(body.found).toBe(false)
     expect(body.note).toBeNull()
+  })
+
+  it('gks_lookup_by_symbol returns atoms whose linked_symbols cite the path', async () => {
+    // Seed the atomic index with a citation-bearing entry. Normally the MSP
+    // re-indexer does this; the MCP test bypasses it.
+    const fs = await import('node:fs/promises')
+    const root = (store as unknown as { root: string }).root
+    const indexDir = join(root, 'gks', '00_index')
+    await fs.mkdir(indexDir, { recursive: true })
+    const row = {
+      id: 'ADR--PARSE-TRACE-NORM',
+      phase: 2,
+      type: 'adr',
+      status: 'stable',
+      vault_id: 'V',
+      path: 'phase2_atomic/concept/adr-parse-trace-norm.md',
+      title: 'Parse-trace normalization',
+      linked_symbols: [{ file: 'src/memory/consolidator-llm.ts', fn: 'formatStep' }],
+    }
+    await fs.writeFile(join(indexDir, 'atomic_index.jsonl'), JSON.stringify(row) + '\n')
+
+    const hit = await client.callTool({
+      name: 'gks_lookup_by_symbol',
+      arguments: { symbol: 'src/memory/consolidator-llm.ts:formatStep' },
+    })
+    const body = unpack<{ hit_count: number; hits: Array<{ id: string; type: string }> }>(
+      hit as ToolReply,
+    )
+    expect(body.hit_count).toBe(1)
+    expect(body.hits[0]!.id).toBe('ADR--PARSE-TRACE-NORM')
+    expect(body.hits[0]!.type).toBe('adr')
+
+    const miss = await client.callTool({
+      name: 'gks_lookup_by_symbol',
+      arguments: { symbol: 'src/never.ts:nope' },
+    })
+    const missBody = unpack<{ hit_count: number }>(miss as ToolReply)
+    expect(missBody.hit_count).toBe(0)
   })
 
   it('gks_propose_inbound writes to the inbound queue', async () => {

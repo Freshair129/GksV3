@@ -33,6 +33,17 @@ export interface AtomicEntry {
   crosslinks?: Record<string, string[]>
   valid_from?: string
   valid_to?: string | null
+  /**
+   * Code symbols this atom cites. Carried in `atomic_index.jsonl` so
+   * `lookupBySymbol(path)` can answer "which atoms govern this code"
+   * without re-parsing every atom's frontmatter (see ADR-010).
+   */
+  linked_symbols?: LinkedSymbol[]
+  /**
+   * Blueprint-only: file paths the blueprint declares it produces.
+   * Treated as file-level citations by reverse lookup (ADR-010).
+   */
+  geography?: string[]
 }
 
 /** Full atomic note (frontmatter + body). */

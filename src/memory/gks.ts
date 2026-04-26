@@ -138,6 +138,27 @@ export class AtomicLayer {
     return { note, score: 1.0, matchedBy: 'id' }
   }
 
+  /**
+   * Reverse citation lookup — given a code symbol path like
+   * `src/x.ts:foo[:42]`, find every indexed atom whose `linked_symbols`
+   * or (for blueprints) `geography` cites that path. Implements
+   * ADR-010 — see the ADR for match semantics.
+   *
+   * O(N) over the in-memory index. Acceptable for hundreds-to-low-
+   * thousands of atoms; an inverted index can replace this when we
+   * scale past that.
+   */
+  searchBySymbol(symbolPath: string): AtomicEntry[] {
+    if (!this.loaded) {
+      throw new Error(
+        'AtomicLayer.searchBySymbol called before loadIndex(); call loadIndex() first',
+      )
+    }
+    const q = parseSymbolPath(symbolPath)
+    if (!q.file) return []
+    return this.entries.filter((e) => entryCitesSymbol(e, q))
+  }
+
   getEntry(id: string): AtomicEntry | undefined {
     return this.byId.get(id)
   }
@@ -172,6 +193,48 @@ export class AtomicLayer {
     if (this.cacheBodies) this.bodyCache.set(entry.id, body)
     return body
   }
+}
+
+// ─── reverse citation lookup helpers (ADR-010) ─────────────────────────
+
+interface ParsedSymbol {
+  file: string
+  fn?: string
+  line?: number
+}
+
+function parseSymbolPath(s: string): ParsedSymbol {
+  const parts = s.split(':')
+  const out: ParsedSymbol = { file: parts[0] ?? '' }
+  if (parts[1]) out.fn = parts[1]
+  if (parts[2]) {
+    const n = Number.parseInt(parts[2], 10)
+    if (Number.isFinite(n) && n > 0) out.line = n
+  }
+  return out
+}
+
+function entryCitesSymbol(entry: AtomicEntry, q: ParsedSymbol): boolean {
+  // Blueprint-style geography: file paths (with optional :fn). Match
+  // when the file part agrees — geography is broader by convention.
+  for (const g of entry.geography ?? []) {
+    const [gFile] = g.split(':')
+    if (gFile === q.file) return true
+  }
+
+  // linked_symbols: explicit { file, fn?, line? } records.
+  for (const ls of entry.linked_symbols ?? []) {
+    if (ls.file !== q.file) continue
+    // Atom missing fn ⇒ atom covers whole file ⇒ match any query in that file
+    if (ls.fn === undefined) return true
+    // Query missing fn ⇒ query is file-level ⇒ match any fn in that file
+    if (q.fn === undefined) return true
+    if (ls.fn !== q.fn) continue
+    // Line check: only enforce when both sides specify
+    if (q.line !== undefined && ls.line !== undefined && ls.line !== q.line) continue
+    return true
+  }
+  return false
 }
 
 async function safeMtime(path: string): Promise<number | null> {

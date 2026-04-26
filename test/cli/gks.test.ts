@@ -91,6 +91,72 @@ describe('gks CLI', () => {
     expect(r.stdout).toMatch(/inbound/)
   }, 30_000)
 
+  it('lookup-by-symbol returns atoms whose linked_symbols cite the path', async () => {
+    run(['init', `--root=${workdir}`])
+    // Seed a hand-crafted atomic index (orchestrator/MSP normally does this
+    // via the re-indexer; the CLI is paradigm-agnostic about how it got here).
+    const fs = await import('node:fs/promises')
+    const indexDir = join(workdir, 'gks', '00_index')
+    await fs.mkdir(indexDir, { recursive: true })
+    const rows = [
+      {
+        id: 'ADR--PARSE-TRACE-NORM',
+        phase: 2,
+        type: 'adr',
+        status: 'stable',
+        vault_id: 'V',
+        path: 'phase2_atomic/concept/adr-parse-trace-norm.md',
+        title: 'Parse-trace normalization',
+        linked_symbols: [{ file: 'src/memory/consolidator-llm.ts', fn: 'formatStep' }],
+      },
+      {
+        id: 'BLUEPRINT--FEAT-STOCK',
+        phase: 3,
+        type: 'blueprint',
+        status: 'stable',
+        vault_id: 'V',
+        path: 'phase3_blueprint/feat-stock.yaml',
+        title: 'Stock blueprint',
+        geography: ['src/stock/fefo.ts:applyFefo'],
+      },
+    ]
+    await fs.writeFile(
+      join(indexDir, 'atomic_index.jsonl'),
+      rows.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    )
+
+    const hit = run([
+      'lookup-by-symbol',
+      'src/memory/consolidator-llm.ts:formatStep',
+      `--root=${workdir}`,
+      '--json',
+    ])
+    expect(hit.code).toBe(0)
+    const parsed = JSON.parse(hit.stdout) as { hit_count: number; hits: Array<{ id: string }> }
+    expect(parsed.hit_count).toBe(1)
+    expect(parsed.hits[0]!.id).toBe('ADR--PARSE-TRACE-NORM')
+
+    const bp = run([
+      'lookup-by-symbol',
+      'src/stock/fefo.ts:applyFefo',
+      `--root=${workdir}`,
+      '--json',
+    ])
+    expect(bp.code).toBe(0)
+    const bpParsed = JSON.parse(bp.stdout) as { hits: Array<{ id: string }> }
+    expect(bpParsed.hits[0]!.id).toBe('BLUEPRINT--FEAT-STOCK')
+
+    const miss = run([
+      'lookup-by-symbol',
+      'src/never.ts:nope',
+      `--root=${workdir}`,
+      '--json',
+    ])
+    expect(miss.code).toBe(0)
+    const missParsed = JSON.parse(miss.stdout) as { hit_count: number }
+    expect(missParsed.hit_count).toBe(0)
+  }, 30_000)
+
   it('propose-inbound --linked-symbol records code references', async () => {
     run(['init', `--root=${workdir}`])
     const r = run([

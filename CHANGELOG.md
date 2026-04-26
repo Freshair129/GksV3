@@ -4,6 +4,39 @@ All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.2] — 2026-04-26
+
+Closes the bidirectional traceability loop. `linked_symbols` (3.5.1)
+made atoms cite code; this release makes those citations queryable in
+reverse — given a code path, find the atoms that govern it.
+
+### Added
+
+- `MemoryStore.lookupBySymbol(symbolPath)` — reverse citation lookup.
+  Match semantics defined in ADR-010 (file-level / fn-level / line-
+  level matching across both `linked_symbols` and `geography`).
+- CLI: `gks lookup-by-symbol src/x.ts:foo[:line]` (with `--json` output).
+- MCP tool: `gks_lookup_by_symbol` (Zod-strict input).
+- Audit log: new `lookup_by_symbol` op. Symbol path + hit count
+  recorded; symbol value not redacted (paths are not credentials).
+- `AtomicEntry.linked_symbols` and `AtomicEntry.geography` — atomic-
+  index rows now preserve these fields so reverse lookups work
+  without re-parsing markdown frontmatter.
+
+### Architectural
+
+- **ADR-010** — Bidirectional traceability via reverse citation
+  lookup. Records the gap (AST → atoms had no answer until now), the
+  in-scope reasoning under ADR-008 (query primitive over stored data),
+  and the boundary with GitNexus per ADR-009 (orchestrator combines
+  the two; GKS still has no GitNexus dependency).
+
+### Tests
+- 251 passing (was 241 in 3.5.1) across 32 test files; 3 still opt-in.
+  +10 new tests covering match semantics + CLI + MCP round-trips.
+
+[3.5.2]: https://github.com/freshair129/gksv3/releases/tag/v3.5.2
+
 ## [3.5.1] — 2026-04-26
 
 Post-3.5.0 quality, security, and architectural-clarity pass. No public

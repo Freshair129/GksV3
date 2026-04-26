@@ -30,7 +30,7 @@ import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('mcp-server')
 
-const SERVER_VERSION = '3.5.1'
+const SERVER_VERSION = '3.5.2'
 
 export interface GksMcpServerOptions {
   /** The store to expose. Caller owns its lifecycle. */
@@ -141,6 +141,37 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     async (args) => {
       const note = await opts.store.lookup(args.id)
       return jsonReply({ ok: true, found: note != null, note: note ?? null })
+    },
+  )
+
+  // gks_lookup_by_symbol
+  server.registerTool(
+    'gks_lookup_by_symbol',
+    {
+      description:
+        'Reverse citation lookup: given a code symbol path like `src/x.ts:foo` (or `src/x.ts:foo:42`, or just `src/x.ts`), return every atom whose linked_symbols / geography cites it. Closes the bidirectional traceability loop with code-intelligence peers like GitNexus — see ADR-010.',
+      inputSchema: {
+        symbol: z
+          .string()
+          .min(1)
+          .describe('Symbol path: file[:fn[:line]] (e.g. src/memory/inbound.ts:propose).'),
+      },
+    },
+    async (args) => {
+      const hits = await opts.store.lookupBySymbol(args.symbol)
+      return jsonReply({
+        ok: true,
+        symbol: args.symbol,
+        hit_count: hits.length,
+        hits: hits.map((h) => ({
+          id: h.id,
+          type: h.type,
+          phase: h.phase,
+          status: h.status,
+          title: h.title,
+          path: h.path,
+        })),
+      })
     },
   )
 

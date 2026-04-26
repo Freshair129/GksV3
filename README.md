@@ -253,6 +253,12 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
   reads serve from GKS without a GitNexus round-trip. Includes
   bi-temporal "what did the call graph look like on date X?" via
   `addEdge({ supersede: true })`.
+- [`examples/drift-detection/`](./examples/drift-detection/) — the
+  **bidirectional doc/code drift detector** that combines
+  `lookupBySymbol` (atoms citing a path) with the cached call graph
+  (downstream callers) into a single risk-classified report. Designed
+  for a pre-push hook; aborts when an ADR or BLUEPRINT cites the
+  changed code so the developer reviews the governing decision first.
 
 ## Development
 

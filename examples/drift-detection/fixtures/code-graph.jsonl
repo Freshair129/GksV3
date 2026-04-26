@@ -1,0 +1,9 @@
+{"kind":"node","payload":{"id":"fn:src/memory/inbound.ts:propose","labels":["function"],"props":{"file":"src/memory/inbound.ts","name":"propose","source":"gitnexus"}}}
+{"kind":"node","payload":{"id":"fn:src/memory/inbound.ts:renderArtifactMarkdown","labels":["function"],"props":{"file":"src/memory/inbound.ts","name":"renderArtifactMarkdown","source":"gitnexus"}}}
+{"kind":"node","payload":{"id":"fn:src/memory/api.ts:retain","labels":["function"],"props":{"file":"src/memory/api.ts","name":"retain","source":"gitnexus"}}}
+{"kind":"node","payload":{"id":"fn:src/lib/yaml-lite.ts:yamlScalar","labels":["function"],"props":{"file":"src/lib/yaml-lite.ts","name":"yamlScalar","source":"gitnexus"}}}
+{"kind":"node","payload":{"id":"fn:src/lib/yaml-lite.ts:yamlLite","labels":["function"],"props":{"file":"src/lib/yaml-lite.ts","name":"yamlLite","source":"gitnexus"}}}
+{"kind":"edge","payload":{"id":"E1","from":"fn:src/memory/api.ts:retain","to":"fn:src/memory/inbound.ts:propose","rel":"calls","props":{"source":"gitnexus"},"valid_from":"2026-04-26T00:00:00Z","valid_to":null,"recorded_at":"2026-04-26T00:00:00Z"}}
+{"kind":"edge","payload":{"id":"E2","from":"fn:src/memory/inbound.ts:propose","to":"fn:src/memory/inbound.ts:renderArtifactMarkdown","rel":"calls","props":{"source":"gitnexus"},"valid_from":"2026-04-26T00:00:00Z","valid_to":null,"recorded_at":"2026-04-26T00:00:00Z"}}
+{"kind":"edge","payload":{"id":"E3","from":"fn:src/memory/inbound.ts:renderArtifactMarkdown","to":"fn:src/lib/yaml-lite.ts:yamlLite","rel":"calls","props":{"source":"gitnexus"},"valid_from":"2026-04-26T00:00:00Z","valid_to":null,"recorded_at":"2026-04-26T00:00:00Z"}}
+{"kind":"edge","payload":{"id":"E4","from":"fn:src/lib/yaml-lite.ts:yamlLite","to":"fn:src/lib/yaml-lite.ts:yamlScalar","rel":"calls","props":{"source":"gitnexus"},"valid_from":"2026-04-26T00:00:00Z","valid_to":null,"recorded_at":"2026-04-26T00:00:00Z"}}

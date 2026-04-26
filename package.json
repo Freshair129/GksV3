@@ -1,6 +1,6 @@
 {
   "name": "@evaai/gks",
-  "version": "3.5.3",
+  "version": "3.5.4",
   "description": "Genesis Knowledge System — a memory fabric for agentic AI built on the EVA Tri-Brain architecture. Four memory layers, bi-temporal versioning, multi-tenancy, OpenTelemetry, MCP server, and a CLI.",
   "type": "module",
   "license": "MIT",

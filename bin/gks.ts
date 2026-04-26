@@ -35,6 +35,8 @@ import {
 } from '../src/memory/index.js'
 import { recall, retain, reflect } from '../src/memory/api.js'
 import { truncate } from '../src/lib/text.js'
+import { IssueStore } from '../src/issue/store.js'
+import { ISSUE_STATUSES, ISSUE_PRIORITIES, type IssueStatus, type IssuePriority } from '../src/issue/types.js'
 
 interface GlobalFlags {
   root: string
@@ -78,6 +80,9 @@ async function main(): Promise<void> {
       break
     case 'status':
       await cmdStatus(subArgv)
+      break
+    case 'issue':
+      await cmdIssue(subArgv)
       break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
@@ -386,6 +391,236 @@ async function cmdStatus(argv: string[]): Promise<void> {
   })
 }
 
+// ─── issue tracker (light-tier per ADR-012) ────────────────────────────────
+
+async function cmdIssue(argv: string[]): Promise<void> {
+  const sub = argv[0]
+  if (!sub) {
+    console.error(
+      'gks issue: missing subcommand. Try: new | list | show | comment | status | assign | close | dashboard',
+    )
+    process.exit(1)
+  }
+  const rest = argv.slice(1)
+  switch (sub) {
+    case 'new': await cmdIssueNew(rest); break
+    case 'list': await cmdIssueList(rest); break
+    case 'show': await cmdIssueShow(rest); break
+    case 'comment': await cmdIssueComment(rest); break
+    case 'status': await cmdIssueStatus(rest); break
+    case 'assign': await cmdIssueAssign(rest); break
+    case 'close': await cmdIssueClose(rest); break
+    case 'dashboard': await cmdIssueDashboard(rest); break
+    default:
+      console.error(`gks issue: unknown subcommand '${sub}'`)
+      process.exit(1)
+  }
+}
+
+function openIssueStore(flags: GlobalFlags): IssueStore {
+  return new IssueStore({ root: flags.root })
+}
+
+function issueActor(flags: GlobalFlags): string {
+  return flags.namespace.user_id ? `MSP-USR-${flags.namespace.user_id}`
+       : flags.namespace.agent_id ? `MSP-AGT-${flags.namespace.agent_id}`
+       : 'MSP-USR-CLI'
+}
+
+async function cmdIssueNew(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      title: { type: 'string' },
+      priority: { type: 'string' },
+      label: { type: 'string', multiple: true },
+      assignee: { type: 'string' },
+      reporter: { type: 'string' },
+      body: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const title = (values['title'] as string | undefined) ?? positionals.join(' ').trim()
+  if (!title) {
+    console.error('gks issue new: missing title (positional or --title=)')
+    process.exit(1)
+  }
+  const priority = (values['priority'] as string | undefined) ?? 'medium'
+  const store = openIssueStore(flags)
+  const issue = await store.create({
+    title,
+    priority: priority as IssuePriority,
+    ...(values['label'] ? { labels: values['label'] as string[] } : {}),
+    ...(values['assignee'] ? { assignee: values['assignee'] as string } : {}),
+    ...(values['reporter'] ? { reporter: values['reporter'] as string } : { reporter: issueActor(flags) }),
+    ...(values['body'] ? { body: values['body'] as string } : {}),
+  })
+  emit(flags, issue, () => {
+    console.log(`✓ ${issue.id}  [${issue.status}/${issue.priority}]  ${issue.title}`)
+    console.log(`  ${join(store.getDir(), `${issue.id}.md`)}`)
+  })
+}
+
+async function cmdIssueList(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      ...GLOBAL_OPTIONS,
+      status: { type: 'string' },
+      priority: { type: 'string' },
+      assignee: { type: 'string' },
+      label: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const store = openIssueStore(flags)
+  const issues = await store.list({
+    ...(values['status'] ? { status: values['status'] as IssueStatus | 'all' } : {}),
+    ...(values['priority'] ? { priority: values['priority'] as IssuePriority } : {}),
+    ...(values['assignee'] ? { assignee: values['assignee'] as string } : {}),
+    ...(values['label'] ? { label: values['label'] as string } : {}),
+  })
+  emit(flags, { count: issues.length, issues }, () => {
+    if (issues.length === 0) {
+      console.log('(no issues match)')
+      return
+    }
+    for (const i of issues) {
+      const tag = i.labels && i.labels.length > 0 ? `[${i.labels.join(',')}] ` : ''
+      console.log(
+        `  ${i.status.padEnd(13)} ${i.priority.padEnd(7)} ${i.id.padEnd(40)} ${tag}${i.title}`,
+      )
+    }
+  })
+}
+
+async function cmdIssueShow(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks issue show: missing id')
+    process.exit(1)
+  }
+  const store = openIssueStore(flags)
+  const { issue, body } = await store.show(id)
+  emit(flags, { ...issue, body }, () => {
+    console.log(`▸ ${issue.id} — ${issue.title}`)
+    console.log(`  status:      ${issue.status}`)
+    console.log(`  priority:    ${issue.priority}`)
+    if (issue.assignee) console.log(`  assignee:    ${issue.assignee}`)
+    if (issue.labels) console.log(`  labels:      ${issue.labels.join(', ')}`)
+    console.log(`  created:     ${issue.created_at}`)
+    console.log(`  updated:     ${issue.updated_at}`)
+    if (issue.closed_at) console.log(`  closed:      ${issue.closed_at}`)
+    console.log('')
+    console.log(body.split('\n').slice(0, 50).join('\n'))
+  })
+}
+
+async function cmdIssueComment(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  const text = positionals.slice(1).join(' ').trim()
+  if (!id || !text) {
+    console.error('gks issue comment: usage: gks issue comment <ID> "<text>"')
+    process.exit(1)
+  }
+  const store = openIssueStore(flags)
+  const issue = await store.comment(id, text, issueActor(flags))
+  emit(flags, issue, () => console.log(`✓ commented on ${issue.id}`))
+}
+
+async function cmdIssueStatus(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  const newStatus = positionals[1]
+  if (!id || !newStatus) {
+    console.error(
+      `gks issue status: usage: gks issue status <ID> <new-status>\n  status ∈ ${ISSUE_STATUSES.join(' | ')}`,
+    )
+    process.exit(1)
+  }
+  const store = openIssueStore(flags)
+  const issue = await store.setStatus(id, newStatus as IssueStatus, issueActor(flags))
+  emit(flags, issue, () => console.log(`✓ ${issue.id} → ${issue.status}`))
+}
+
+async function cmdIssueAssign(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  const assignee = positionals[1]
+  if (!id || !assignee) {
+    console.error('gks issue assign: usage: gks issue assign <ID> <assignee>')
+    process.exit(1)
+  }
+  const store = openIssueStore(flags)
+  const issue = await store.assign(id, assignee, issueActor(flags))
+  emit(flags, issue, () => console.log(`✓ ${issue.id} assignee → ${issue.assignee}`))
+}
+
+async function cmdIssueClose(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { ...GLOBAL_OPTIONS, 'resolved-by': { type: 'string' } },
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks issue close: missing id')
+    process.exit(1)
+  }
+  const store = openIssueStore(flags)
+  const resolvedBy = values['resolved-by'] as string | undefined
+  const issue = await store.close(id, issueActor(flags), resolvedBy)
+  emit(flags, issue, () => {
+    console.log(`✓ ${issue.id} closed${resolvedBy ? ` (resolved by ${resolvedBy})` : ''}`)
+  })
+}
+
+async function cmdIssueDashboard(argv: string[]): Promise<void> {
+  const { values } = parseArgs({ args: argv, options: { ...GLOBAL_OPTIONS, md: { type: 'boolean' } } })
+  const flags = readGlobals(values)
+  const store = openIssueStore(flags)
+  const all = await store.list({ status: 'all' })
+  const counts: Record<string, number> = {}
+  for (const status of ISSUE_STATUSES) counts[status] = 0
+  for (const i of all) counts[i.status] = (counts[i.status] ?? 0) + 1
+  if (values['md']) {
+    console.log('# Issue dashboard\n')
+    console.log('| Status | Count |')
+    console.log('|---|---:|')
+    for (const s of ISSUE_STATUSES) console.log(`| ${s} | ${counts[s]} |`)
+    return
+  }
+  emit(flags, { total: all.length, by_status: counts }, () => {
+    console.log(`Issue dashboard — ${all.length} total`)
+    for (const s of ISSUE_STATUSES) console.log(`  ${s.padEnd(13)} ${counts[s]}`)
+  })
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -460,6 +695,14 @@ Subcommands
   reflect SESSION_ID [--force-consolidate] [--no-persist]
   init                                       scaffold .brain/ dirs in --root
   status                                     show store stats
+  issue new "TITLE" [--priority=...] [--label=...] ...   create an ISSUE--
+  issue list [--status=open|closed|all] [--priority=...] [--label=...] [--assignee=...]
+  issue show ID                              full issue + Discussion
+  issue comment ID "TEXT"                    append to Discussion
+  issue status ID NEW_STATUS                 open|triaged|in_progress|blocked|closed|wontfix
+  issue assign ID ASSIGNEE
+  issue close ID [--resolved-by=ADR-...]
+  issue dashboard [--md]                     count by status
 
 Global flags
   --root=PATH      repo root (default: cwd, or GKS_ROOT env)

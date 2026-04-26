@@ -33,6 +33,11 @@ export type AuditOp =
   | 'propose_inbound'
   | 'write_episodic'
   | 'patch_metadata'
+  | 'issue_create'
+  | 'issue_comment'
+  | 'issue_status_change'
+  | 'issue_assign'
+  | 'issue_close'
 
 export interface AuditEvent {
   /** ISO-8601 UTC timestamp. */

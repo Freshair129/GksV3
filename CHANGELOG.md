@@ -4,6 +4,61 @@ All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.4] — 2026-04-26
+
+Closes the implementation half of [ADR-012](./docs/adr/012-extended-taxonomy.md):
+ships a self-hosted issue tracker so projects can manage live issues
+inside GKS without depending on Linear / Jira / GitHub Issues.
+
+### Added
+
+- **`IssueStore`** (`src/issue/store.ts`) — file-backed issue tracker
+  per ADR-012's light-governance tier. One `.md` file per issue under
+  `gks/issues/<ID>.md`; direct write (no inbound queue); schema-validated
+  at every mutation; comments append-only by convention.
+  - `create`, `list` (with status / priority / assignee / label
+    filters), `show`, `comment`, `setStatus`, `assign`, `close`
+  - Auto-disambiguates colliding ids; auto-stamps `closed_at` on
+    close/wontfix transitions
+  - Records audit events for every mutation (`issue_create`,
+    `issue_comment`, `issue_status_change`, `issue_assign`, `issue_close`)
+- **`Issue` schema** (`src/issue/types.ts`) — `IssueStatus` enum
+  (open / triaged / in_progress / blocked / closed / wontfix),
+  `IssuePriority` enum (low / medium / high / urgent), validators,
+  slug-from-title helper.
+- **CLI** — 8 subcommands under `gks issue`:
+
+  ```sh
+  gks issue new "Title" [--priority=…] [--label=…] [--assignee=…] [--reporter=…] [--body=…]
+  gks issue list [--status=open|closed|all] [--priority=…] [--label=…] [--assignee=…] [--json]
+  gks issue show ID [--json]
+  gks issue comment ID "TEXT"
+  gks issue status ID NEW_STATUS
+  gks issue assign ID ASSIGNEE
+  gks issue close ID [--resolved-by=ADR-…]
+  gks issue dashboard [--md]
+  ```
+- **Audit ops** — `issue_create`, `issue_comment`, `issue_status_change`,
+  `issue_assign`, `issue_close` added to the `AuditOp` union.
+
+### Tests
+
+- 278 passing (was 256 in 3.5.3) across 35 test files; 3 still opt-in.
+  +22 new tests: 13 IssueStore unit + 9 CLI E2E covering happy path /
+  filter / comment round-trip / status transitions / assignee /
+  close-with-resolved-by / dashboard / JSON mode / invalid-status
+  rejection.
+
+### Notes
+
+- Issues live in the **light-governance** tier (`gks/issues/`) — direct
+  write is OK; the strict tier (`gks/{adrs,blueprints,…}/`) still routes
+  through the inbound queue.
+- The MCP server does NOT yet expose `gks_issue_*` tools; that's the
+  natural follow-up if there's demand.
+
+[3.5.4]: https://github.com/freshair129/gksv3/releases/tag/v3.5.4
+
 ## [3.5.3] — 2026-04-26
 
 Closes the data path for `lookupBySymbol` (3.5.2). Before this release

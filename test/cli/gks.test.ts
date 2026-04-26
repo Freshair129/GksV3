@@ -91,6 +91,34 @@ describe('gks CLI', () => {
     expect(r.stdout).toMatch(/inbound/)
   }, 30_000)
 
+  it('propose-inbound --linked-symbol records code references', async () => {
+    run(['init', `--root=${workdir}`])
+    const r = run([
+      'propose-inbound',
+      'ADR--LINKED-SYMBOL-CLI',
+      `--root=${workdir}`,
+      '--title=Linked symbols via CLI',
+      '--body=Round-trip test',
+      '--linked-symbol=src/memory/inbound.ts:renderArtifactMarkdown:77',
+      '--linked-symbol=src/lib/yaml-lite.ts:yamlLite',
+    ])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toMatch(/linked_symbols: 2/)
+
+    const inboundDir = join(workdir, '.brain/msp/projects/evaAI/inbound')
+    const fs = await import('node:fs/promises')
+    const files = await fs.readdir(inboundDir)
+    const artifact = files.find((f) => f.startsWith('ADR--LINKED-SYMBOL-CLI'))
+    expect(artifact).toBeTruthy()
+    const md = await fs.readFile(join(inboundDir, artifact!), 'utf8')
+    expect(md).toContain('linked_symbols:')
+    expect(md).toContain('"file":"src/memory/inbound.ts"')
+    expect(md).toContain('"fn":"renderArtifactMarkdown"')
+    expect(md).toContain('"line":77')
+    expect(md).toContain('"file":"src/lib/yaml-lite.ts"')
+    expect(md).toContain('"fn":"yamlLite"')
+  }, 30_000)
+
   it('--json emits machine-readable output', async () => {
     run(['init', `--root=${workdir}`])
     const r = run(['status', `--root=${workdir}`, '--json'])

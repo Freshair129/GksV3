@@ -98,14 +98,17 @@ API changes; safe to upgrade.
   optional list of `{ file, fn?, line? }` tuples that an atom governs.
   GKS only stores + serialises them; resolution against an actual
   codebase is the orchestrator's job (e.g. MSP fans out to GitNexus
-  per ADR-009). Exposed on the `gks_propose_inbound` MCP tool as a
-  Zod-strict schema.
+  per ADR-009). Available across all surfaces:
+  - TS API: `linkedSymbols` on `RetainInput`
+  - MCP: `linked_symbols` on the `gks_propose_inbound` tool (Zod-strict schema)
+  - CLI: `gks propose-inbound … --linked-symbol=src/x.ts:fn:line` (repeatable)
 - `yamlLite` now renders arrays of objects as flow-style JSON scalars
   (`- {"file":"...","fn":"..."}`) — needed for `linked_symbols` and
   any future nested frontmatter values.
 
 ### Tests
-- 240 passing (was 237 in 3.5.0) across 32 test files; 3 still opt-in.
+- 241 passing (was 237 in 3.5.0) across 32 test files; 3 still opt-in.
+  +3 new tests: 2 inbound (renders / omits) + 1 CLI (round-trip).
 
 [3.5.1]: https://github.com/freshair129/gksv3/releases/tag/v3.5.1
 

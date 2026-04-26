@@ -16,6 +16,7 @@ obvious from the code alone. One file per decision; status is one of
 | [008](./008-gks-storage-engine-scope.md) | GKS as storage engine; Memory OS layer above (MSP-shaped contract) | accepted | 2026-04-26 |
 | [009](./009-msp-as-orchestrator.md) | MSP orchestrates peer subsystems; GKS does not proxy them | accepted | 2026-04-26 |
 | [010](./010-reverse-citation-lookup.md) | Bidirectional traceability via reverse citation lookup | accepted | 2026-04-26 |
+| [011](./011-test-policy.md) | Test policy: when written, when run, what's required | accepted | 2026-04-26 |
 
 ## Promotion to gks/
 

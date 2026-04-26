@@ -163,9 +163,14 @@ Recommended split:
 | "Who calls `escapeCopyField`?"               | `query`      |
 | "Map this PR's diff to affected processes."  | `detect_changes` |
 
-If / when there's demand to fuse the two — feeding GitNexus call-edges
-into GKS's `GraphBackend` so atomic notes carry first-class blast-radius
-metadata — see option 3 in the integration notes (not yet built).
+**Architectural note:** GKS has no knowledge of GitNexus — no import,
+no proxy, no fan-out tool. They're *peer* subsystems and the Memory OS
+above (e.g. MSP) orchestrates them. See
+[ADR-009](./docs/adr/009-msp-as-orchestrator.md) for the rationale and
+[`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md#coexisting-with-peer-subsystems-eg-gitnexus)
+for the worked example. Caching GitNexus call-edges into GKS's
+`GraphBackend` for fast reads is allowed (denormalisation owned by MSP,
+not a runtime dependency).
 
 ## Backends
 

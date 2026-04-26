@@ -106,9 +106,62 @@ If you're building a Memory OS for GKS, verify:
 That's it. GKS won't help you enforce these — they're your responsibility
 as the Memory OS implementer.
 
+## Coexisting with peer subsystems (e.g. GitNexus)
+
+GKS isn't the only specialised subsystem your Memory OS will want to
+talk to. Code-intelligence engines (e.g. [GitNexus](https://github.com/nxpatterns/gitnexus)),
+external KBs, observability stores, vector-search-as-a-service — these
+are *peers* of GKS, not layers above or below it.
+
+The pattern: **MSP orchestrates; GKS does not proxy.** GKS has no
+knowledge of GitNexus (no import, no MCP-tool-that-fans-out, no
+optional dependency). When MSP needs a correlated answer it fans out
+in parallel and merges:
+
+```
+┌──────────────────────────────────┐
+│ Agent                             │
+└────────────────┬─────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────┐
+│ MSP — orchestrator                │
+│  • routes per query type          │
+│  • parallel fan-out + merge       │
+└──┬──────────────────────┬────────┘
+   │                      │
+   ▼                      ▼
+┌────────────┐    ┌──────────────┐
+│  GKS       │    │  GitNexus    │
+│  memory    │    │  code AST    │
+└────────────┘    └──────────────┘
+   (peers — no edge between them)
+```
+
+Worked example — agent asks *"What does ADR-007 say, and what would
+break if I refactor the function it governs?"*:
+
+```
+agent → MSP
+         ├── GKS.lookup("ADR-007")             ← parallel
+         └── GitNexus.impact("formatStep")     ← parallel
+        merged response back to agent
+```
+
+The decision and full reasoning live in
+[ADR-009](./adr/009-msp-as-orchestrator.md). Importantly: caching
+GitNexus call-edges into GKS's `GraphBackend` for fast reads is
+*allowed* and is **not** a violation — that's denormalisation owned by
+MSP, not a runtime dependency.
+
+For the MCP-config recipe that runs both servers side-by-side, see
+the README section [Pairing with a code-structure layer](../README.md#pairing-with-a-code-structure-layer-eg-gitnexus).
+
 ## Read more
 
 - [`../SCOPE.md`](../SCOPE.md) — full in/out scope of GKS itself
+- [`./adr/008-gks-storage-engine-scope.md`](./adr/008-gks-storage-engine-scope.md) — vertical layering decision (GKS vs Memory OS)
+- [`./adr/009-msp-as-orchestrator.md`](./adr/009-msp-as-orchestrator.md) — horizontal layering decision (peer subsystems)
 - [`../examples/memory-os-architecture/README.md`](../examples/memory-os-architecture/README.md)
   — reference Memory OS impl walkthrough
 - EVA project's `FRAMEWORK_MASTER_SPEC.md` (external) — full MSP spec

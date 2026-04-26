@@ -13,6 +13,7 @@ obvious from the code alone. One file per decision; status is one of
 | [005](./005-cut-falkordb.md) | Cut FalkorDB; use Postgres tables for the graph | accepted | 2026-04-25 |
 | [006](./006-otel-noop-default.md) | OpenTelemetry with no-op default | accepted | 2026-04-25 |
 | [007](./007-mcp-server-stdio-only.md) | MCP server: stdio only for Phase 5 | accepted | 2026-04-25 |
+| [008](./008-gks-storage-engine-scope.md) | GKS as storage engine; Memory OS layer above (MSP-shaped contract) | accepted | 2026-04-26 |
 
 ## Promotion to gks/
 

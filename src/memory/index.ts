@@ -18,6 +18,7 @@
 import { resolve, join } from 'node:path'
 
 import type {
+  AtomicEntry,
   AtomicHit,
   EpisodicMemory,
   InboundArtifact,
@@ -339,6 +340,29 @@ export class MemoryStore {
       })
     }
     return result
+  }
+
+  /**
+   * Reverse citation lookup — given a code symbol path like
+   * `src/x.ts:foo[:42]`, return every indexed atom whose `linked_symbols`
+   * or (for blueprints) `geography` cites that path. Closes the
+   * bidirectional traceability loop with GitNexus's AST-level
+   * `detect_changes` per ADR-010.
+   *
+   * GKS does NOT verify the symbol exists in the codebase — that's the
+   * orchestrator's job (typically via GitNexus). A citation pointing at
+   * a since-renamed function is itself a drift signal worth surfacing.
+   */
+  async lookupBySymbol(symbolPath: string): Promise<AtomicEntry[]> {
+    await this.atomic.loadIndex()
+    const hits = this.atomic.searchBySymbol(symbolPath)
+    if (this.audit) {
+      await this.audit.emit({
+        op: 'lookup_by_symbol',
+        meta: { symbol: symbolPath, hit_count: hits.length },
+      })
+    }
+    return hits
   }
 
   async search(

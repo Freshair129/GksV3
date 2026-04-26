@@ -64,6 +64,9 @@ async function main(): Promise<void> {
     case 'lookup':
       await cmdLookup(subArgv)
       break
+    case 'lookup-by-symbol':
+      await cmdLookupBySymbol(subArgv)
+      break
     case 'propose-inbound':
       await cmdProposeInbound(subArgv)
       break
@@ -189,6 +192,50 @@ async function cmdLookup(argv: string[]): Promise<void> {
     console.log('')
     console.log(note.body.split('\n').slice(0, 20).join('\n'))
   })
+}
+
+async function cmdLookupBySymbol(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const symbolPath = positionals[0]
+  if (!symbolPath) {
+    console.error(
+      'gks lookup-by-symbol: missing symbol path (e.g. src/x.ts:foo or src/x.ts:foo:42)',
+    )
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+  const hits = await store.lookupBySymbol(symbolPath)
+  emit(
+    flags,
+    {
+      symbol: symbolPath,
+      hit_count: hits.length,
+      hits: hits.map((h) => ({
+        id: h.id,
+        type: h.type,
+        phase: h.phase,
+        status: h.status,
+        title: h.title,
+        path: h.path,
+      })),
+    },
+    () => {
+      if (hits.length === 0) {
+        console.log(`(no atoms cite ${symbolPath})`)
+        return
+      }
+      console.log(`${hits.length} atom(s) cite ${symbolPath}:`)
+      for (const h of hits) {
+        console.log(`  ▸ ${h.id}  [${h.type}/${h.status}]  ${h.title ?? ''}`)
+        console.log(`    ${h.path}`)
+      }
+    },
+  )
 }
 
 async function cmdProposeInbound(argv: string[]): Promise<void> {
@@ -407,6 +454,7 @@ Subcommands
   retain CONTENT [--path=...] [--tag=...] [--conflict-policy=...]
   recall QUERY    [--top-k=5] [--threshold=...] [--strategy=multi] [--cross-namespace]
   lookup ID
+  lookup-by-symbol src/x.ts[:fn[:line]]    reverse: which atoms cite this code?
   propose-inbound TYPE--SLUG --title="..." --body="..." [--phase=1] [--type=insight]
                                              [--linked-symbol=src/x.ts:fn:line ...]
   reflect SESSION_ID [--force-consolidate] [--no-persist]

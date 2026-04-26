@@ -61,4 +61,90 @@ describe('AtomicLayer', () => {
     expect(entries).toEqual([])
     expect(layer.size()).toBe(0)
   })
+
+  describe('searchBySymbol (ADR-010 reverse citation lookup)', () => {
+    function makeIndexed(entries: Array<Partial<{ id: string; type: string; linked_symbols: unknown[]; geography: string[] }>>) {
+      const layer = new AtomicLayer({ indexPath: '/dev/null/never-loads' })
+      // Bypass loadIndex by stubbing internal state; simpler than fs round-trip.
+      const e = entries.map((row) => ({
+        id: row.id ?? 'X',
+        phase: 2,
+        type: row.type ?? 'adr',
+        status: 'stable',
+        vault_id: 'V',
+        path: 'p',
+        title: row.id ?? 'X',
+        ...(row.linked_symbols ? { linked_symbols: row.linked_symbols } : {}),
+        ...(row.geography ? { geography: row.geography } : {}),
+      })) as unknown as Parameters<AtomicLayer['filter']>[0][]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(layer as any).entries = e
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(layer as any).loaded = true
+      return layer
+    }
+
+    it('matches exact file:fn citation', () => {
+      const layer = makeIndexed([
+        { id: 'A', linked_symbols: [{ file: 'src/x.ts', fn: 'foo' }] },
+        { id: 'B', linked_symbols: [{ file: 'src/x.ts', fn: 'bar' }] },
+      ])
+      expect(layer.searchBySymbol('src/x.ts:foo').map((e) => e.id)).toEqual(['A'])
+    })
+
+    it('file-only query matches any fn in that file', () => {
+      const layer = makeIndexed([
+        { id: 'A', linked_symbols: [{ file: 'src/x.ts', fn: 'foo' }] },
+        { id: 'B', linked_symbols: [{ file: 'src/x.ts', fn: 'bar' }] },
+        { id: 'C', linked_symbols: [{ file: 'src/y.ts', fn: 'foo' }] },
+      ])
+      expect(layer.searchBySymbol('src/x.ts').map((e) => e.id).sort()).toEqual(['A', 'B'])
+    })
+
+    it('atom with file-only citation matches any fn query in that file', () => {
+      const layer = makeIndexed([
+        { id: 'BROAD', linked_symbols: [{ file: 'src/x.ts' }] },
+        { id: 'NARROW', linked_symbols: [{ file: 'src/x.ts', fn: 'baz' }] },
+      ])
+      expect(layer.searchBySymbol('src/x.ts:foo').map((e) => e.id)).toEqual(['BROAD'])
+    })
+
+    it('blueprint geography citations work', () => {
+      const layer = makeIndexed([
+        { id: 'BP', type: 'blueprint', geography: ['src/stock/fefo.ts:applyFefo', 'src/stock/checkout.ts'] },
+      ])
+      expect(layer.searchBySymbol('src/stock/fefo.ts:applyFefo').map((e) => e.id)).toEqual(['BP'])
+      expect(layer.searchBySymbol('src/stock/checkout.ts:processOrder').map((e) => e.id)).toEqual(['BP'])
+      expect(layer.searchBySymbol('src/stock/other.ts')).toEqual([])
+    })
+
+    it('line-level match: enforced when both sides specify', () => {
+      const layer = makeIndexed([
+        { id: 'L42', linked_symbols: [{ file: 'src/x.ts', fn: 'foo', line: 42 }] },
+      ])
+      expect(layer.searchBySymbol('src/x.ts:foo:42').map((e) => e.id)).toEqual(['L42'])
+      expect(layer.searchBySymbol('src/x.ts:foo:99')).toEqual([])
+      // Query without line still matches (caller didn't constrain)
+      expect(layer.searchBySymbol('src/x.ts:foo').map((e) => e.id)).toEqual(['L42'])
+    })
+
+    it('returns empty when no atoms cite the symbol', () => {
+      const layer = makeIndexed([
+        { id: 'A', linked_symbols: [{ file: 'src/x.ts', fn: 'foo' }] },
+      ])
+      expect(layer.searchBySymbol('src/never.ts:nope')).toEqual([])
+    })
+
+    it('returns empty for malformed query', () => {
+      const layer = makeIndexed([
+        { id: 'A', linked_symbols: [{ file: 'src/x.ts', fn: 'foo' }] },
+      ])
+      expect(layer.searchBySymbol('')).toEqual([])
+    })
+
+    it('throws if called before loadIndex()', () => {
+      const layer = new AtomicLayer({ indexPath: '/dev/null/never-loaded' })
+      expect(() => layer.searchBySymbol('src/x.ts')).toThrow(/loadIndex/)
+    })
+  })
 })

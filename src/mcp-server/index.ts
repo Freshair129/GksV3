@@ -30,7 +30,7 @@ import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('mcp-server')
 
-const SERVER_VERSION = '3.5.2'
+const SERVER_VERSION = '3.5.3'
 
 export interface GksMcpServerOptions {
   /** The store to expose. Caller owns its lifecycle. */

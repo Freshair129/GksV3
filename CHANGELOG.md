@@ -4,6 +4,36 @@ All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.3] — 2026-04-26
+
+Closes the data path for `lookupBySymbol` (3.5.2). Before this release
+the JSONL atomic index had to be hand-edited or built by an external
+tool; the new re-indexer script regenerates it from `gks/**/*.md`
+frontmatter, including the `linked_symbols` and `geography` citations
+that ADR-010 made queryable.
+
+### Added
+
+- **`scripts/msp/re-indexer.ts`** + `npm run msp:index` — walks
+  `gks/**/*.md`, parses YAML frontmatter (proper `yaml` parser, not the
+  inline minimal one used for our own writes), normalises the entries,
+  and writes a deterministic `gks/00_index/atomic_index.jsonl`.
+  - Sorted by id (diff-friendly).
+  - Skips files without an `id` or with an invalid `id` format
+    (per `ATOMIC_ID_PATTERN`); reports counts.
+  - Skips the `00_index/` directory itself (no self-reference).
+  - Preserves `linked_symbols` + `geography` so the index is
+    immediately `lookupBySymbol`-ready (ADR-010 round-trip closed).
+  - `--dry-run` previews stats without writing.
+  - `--verbose` lists each indexed / skipped file.
+
+### Tests
+- 256 passing (was 251 in 3.5.2) across 33 test files; 3 still opt-in.
+  +5 new integration tests covering happy path, citation preservation,
+  invalid-id skipping, dry-run, and self-reference avoidance.
+
+[3.5.3]: https://github.com/freshair129/gksv3/releases/tag/v3.5.3
+
 ## [3.5.2] — 2026-04-26
 
 Closes the bidirectional traceability loop. `linked_symbols` (3.5.1)

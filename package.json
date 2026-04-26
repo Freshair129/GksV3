@@ -1,0 +1,131 @@
+{
+  "name": "@evaai/gks",
+  "version": "3.5.0",
+  "description": "Genesis Knowledge System — a memory fabric for agentic AI built on the EVA Tri-Brain architecture. Four memory layers, bi-temporal versioning, multi-tenancy, OpenTelemetry, MCP server, and a CLI.",
+  "type": "module",
+  "license": "MIT",
+  "author": "freshair129",
+  "homepage": "https://github.com/freshair129/gksv3#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freshair129/gksv3.git"
+  },
+  "bugs": {
+    "url": "https://github.com/freshair129/gksv3/issues"
+  },
+  "keywords": [
+    "memory",
+    "agent",
+    "rag",
+    "vector",
+    "pgvector",
+    "hnsw",
+    "obsidian",
+    "mcp",
+    "claude",
+    "opentelemetry",
+    "bi-temporal",
+    "multi-tenant",
+    "knowledge-graph"
+  ],
+  "main": "./dist/src/memory/index.js",
+  "types": "./dist/src/memory/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/memory/index.d.ts",
+      "import": "./dist/src/memory/index.js"
+    },
+    "./memory": {
+      "types": "./dist/src/memory/index.d.ts",
+      "import": "./dist/src/memory/index.js"
+    },
+    "./mcp-server": {
+      "types": "./dist/src/mcp-server/index.d.ts",
+      "import": "./dist/src/mcp-server/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/src/lib/telemetry.d.ts",
+      "import": "./dist/src/lib/telemetry.js"
+    },
+    "./telemetry-setup": {
+      "types": "./dist/src/lib/telemetry-setup.d.ts",
+      "import": "./dist/src/lib/telemetry-setup.js"
+    },
+    "./retry": {
+      "types": "./dist/src/lib/retry.d.ts",
+      "import": "./dist/src/lib/retry.js"
+    },
+    "./circuit-breaker": {
+      "types": "./dist/src/lib/circuit-breaker.d.ts",
+      "import": "./dist/src/lib/circuit-breaker.js"
+    },
+    "./cost": {
+      "types": "./dist/src/lib/cost-tracker.d.ts",
+      "import": "./dist/src/lib/cost-tracker.js"
+    },
+    "./schema-version": {
+      "types": "./dist/src/lib/schema-version.d.ts",
+      "import": "./dist/src/lib/schema-version.js"
+    }
+  },
+  "bin": {
+    "gks": "./dist/bin/gks.js",
+    "gks-mcp-server": "./dist/bin/gks-mcp-server.js"
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/bin/gks.js dist/bin/gks-mcp-server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "bench:locomo": "tsx benchmarks/locomo.ts",
+    "bench:longmemeval": "tsx benchmarks/longmemeval.ts",
+    "bench:beam": "tsx benchmarks/beam.ts",
+    "bench:sweep": "tsx scripts/bench/sweep.ts",
+    "re-embed": "tsx scripts/msp/re-embed.ts",
+    "pg-migrate": "tsx scripts/msp/pg-migrate.ts",
+    "gks-migrate": "tsx scripts/msp/gks-migrate.ts",
+    "pg:up": "docker compose -f docker-compose.pg.yml up -d",
+    "pg:down": "docker compose -f docker-compose.pg.yml down",
+    "pg:reset": "docker compose -f docker-compose.pg.yml down -v && docker compose -f docker-compose.pg.yml up -d",
+    "rerank:up": "docker compose -f docker-compose.rerank.yml up -d",
+    "rerank:down": "docker compose -f docker-compose.rerank.yml down",
+    "rerank:logs": "docker compose -f docker-compose.rerank.yml logs -f",
+    "quickstart": "tsx examples/quickstart.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/api": "^1.9.1",
+    "hnswlib-node": "^3.0.0",
+    "pg": "^8.20.0",
+    "pg-copy-streams": "^7.0.0",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "@opentelemetry/context-async-hooks": "^2.7.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.215.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.215.0",
+    "@opentelemetry/resources": "^2.7.0",
+    "@opentelemetry/sdk-metrics": "^2.7.0",
+    "@opentelemetry/sdk-trace-base": "^2.7.0",
+    "@opentelemetry/semantic-conventions": "^1.40.0",
+    "@types/node": "^22.5.0",
+    "@types/pg": "^8.20.0",
+    "@types/pg-copy-streams": "^1.2.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}

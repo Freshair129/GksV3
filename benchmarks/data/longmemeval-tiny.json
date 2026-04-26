@@ -1,0 +1,88 @@
+[
+  {
+    "question_id": "qt-001",
+    "question_type": "multi-session",
+    "question": "What programming language does Maya use for her ML research?",
+    "answer": "Python",
+    "answer_session_ids": ["s3"],
+    "haystack_session_ids": ["s1", "s2", "s3", "s4"],
+    "haystack_sessions": {
+      "s1": [
+        { "role": "user", "content": "Maya started a PhD in machine learning at ETH Zürich last fall." },
+        { "role": "assistant", "content": "That's exciting! What's her research focus?" }
+      ],
+      "s2": [
+        { "role": "user", "content": "She's working on reinforcement learning for robotics." }
+      ],
+      "s3": [
+        { "role": "user", "content": "Maya told me her entire research codebase is written in Python with PyTorch." },
+        { "role": "assistant", "content": "Python is the standard for ML research — makes sense." }
+      ],
+      "s4": [
+        { "role": "user", "content": "We had dinner together last Thursday in Zürich." }
+      ]
+    },
+    "haystack_dates": {
+      "s1": "2024-10-15",
+      "s2": "2024-11-02",
+      "s3": "2024-12-08",
+      "s4": "2025-01-20"
+    }
+  },
+  {
+    "question_id": "qt-002",
+    "question_type": "temporal-reasoning",
+    "question": "When did Maya start her PhD?",
+    "answer": "fall 2024",
+    "answer_session_ids": ["s1"],
+    "haystack_session_ids": ["s1", "s2", "s3", "s4"],
+    "haystack_sessions": {
+      "s1": [
+        { "role": "user", "content": "Maya started a PhD in machine learning at ETH Zürich last fall." }
+      ],
+      "s2": [
+        { "role": "user", "content": "She's working on reinforcement learning for robotics." }
+      ],
+      "s3": [
+        { "role": "user", "content": "Maya's research uses PyTorch and Python." }
+      ],
+      "s4": [
+        { "role": "user", "content": "We had dinner together last Thursday in Zürich." }
+      ]
+    },
+    "haystack_dates": {
+      "s1": "2024-10-15",
+      "s2": "2024-11-02",
+      "s3": "2024-12-08",
+      "s4": "2025-01-20"
+    }
+  },
+  {
+    "question_id": "qt-003",
+    "question_type": "single-session-user",
+    "question": "Where did the user and Maya have dinner?",
+    "answer": "Zürich",
+    "answer_session_ids": ["s4"],
+    "haystack_session_ids": ["s1", "s2", "s3", "s4"],
+    "haystack_sessions": {
+      "s1": [
+        { "role": "user", "content": "Maya started a PhD in machine learning at ETH Zürich last fall." }
+      ],
+      "s2": [
+        { "role": "user", "content": "She's working on reinforcement learning for robotics." }
+      ],
+      "s3": [
+        { "role": "user", "content": "Maya's research uses PyTorch and Python." }
+      ],
+      "s4": [
+        { "role": "user", "content": "We had dinner together last Thursday in Zürich at a restaurant near the Old Town." }
+      ]
+    },
+    "haystack_dates": {
+      "s1": "2024-10-15",
+      "s2": "2024-11-02",
+      "s3": "2024-12-08",
+      "s4": "2025-01-20"
+    }
+  }
+]

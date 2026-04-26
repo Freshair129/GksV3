@@ -1,0 +1,21 @@
+{
+  "benchmarks": ["locomo", "longmemeval", "beam"],
+  "backends": ["jsonl", "hnsw"],
+  "providers": ["mock"],
+  "rerankers": ["lexical"],
+  "topK": 5,
+  "threshold": 0.0,
+  "perBench": {
+    "locomo": {
+      "datasetPath": "./benchmarks/data/locomo-tiny.json",
+      "extraArgs": ["--threshold=-1"]
+    },
+    "longmemeval": {
+      "datasetPath": "./benchmarks/data/longmemeval-tiny.json",
+      "extraArgs": ["--threshold=-1"]
+    },
+    "beam": {
+      "extraArgs": ["--query-limit=20"]
+    }
+  }
+}

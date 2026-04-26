@@ -1,11 +1,18 @@
 # GKS v3
 
-> Genesis Knowledge System — a memory fabric for agentic AI built on the
-> EVA Tri-Brain architecture.
+> Genesis Knowledge System — a **storage engine** for agent memory:
+> four cooperating layers (Atomic, Vector, Obsidian, Episodic) behind
+> three verbs (Retain, Recall, Reflect), with multi-tenancy, bi-temporal
+> versioning, observability, and pluggable backends.
 
 [![tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](#tests)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+
+> 📐 **Scope:** GKS is a *storage engine*, not a Memory OS or workflow
+> framework. It exposes primitives; consolidation timing, affect, and
+> phase gates belong in layers above. See [`SCOPE.md`](./SCOPE.md) for
+> the full in/out list.
 
 GKS is a unified memory interface for agents — four cooperating layers
 (Atomic, Vector, Obsidian, Episodic) accessed through three verbs
@@ -217,6 +224,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 
 ## Documentation
 
+- [`SCOPE.md`](./SCOPE.md) — **what GKS is and isn't** (read first if proposing features)
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — layer model + sequence diagrams
 - [`docs/ULTRAPLAN.md`](./docs/ULTRAPLAN.md) — multi-phase roadmap
 - [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — running real-scale evals

@@ -63,4 +63,47 @@ describe('InboundQueue', () => {
       }),
     ).rejects.toThrow(/invalid phase/)
   })
+
+  it('renders linked_symbols as flow-style array entries (ADR-009 cross-reference)', async () => {
+    const q = new InboundQueue({ inboundDir: join(dir, 'inbound') })
+    const r = await q.propose({
+      proposed_id: 'ADR--PARSE-TRACE-NORM',
+      phase: 2,
+      type: 'adr',
+      title: 'parseTrace turn-tag normalization',
+      body: 'Normalize spoofed [USER]/[AGENT] tags before LLM consolidation.',
+      linked_symbols: [
+        { file: 'src/memory/consolidator-llm.ts', fn: 'formatStep' },
+        { file: 'src/memory/consolidator-llm.ts', fn: 'validateExtractorOutput', line: 320 },
+      ],
+    })
+    const md = await readFile(r.path, 'utf8')
+    expect(md).toContain('linked_symbols:')
+    expect(md).toContain('"file":"src/memory/consolidator-llm.ts"')
+    expect(md).toContain('"fn":"formatStep"')
+    expect(md).toContain('"line":320')
+  })
+
+  it('omits linked_symbols when empty or absent', async () => {
+    const q = new InboundQueue({ inboundDir: join(dir, 'inbound') })
+    const r1 = await q.propose({
+      proposed_id: 'FACT--A',
+      phase: 1,
+      type: 'fact',
+      title: 'A',
+      body: 'a',
+    })
+    const r2 = await q.propose({
+      proposed_id: 'FACT--B',
+      phase: 1,
+      type: 'fact',
+      title: 'B',
+      body: 'b',
+      linked_symbols: [],
+    })
+    const md1 = await readFile(r1.path, 'utf8')
+    const md2 = await readFile(r2.path, 'utf8')
+    expect(md1).not.toContain('linked_symbols')
+    expect(md2).not.toContain('linked_symbols')
+  })
 })

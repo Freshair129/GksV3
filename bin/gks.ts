@@ -8,6 +8,8 @@
  *   gks recall "tri-brain architecture" --top-k=5 --strategy=multi
  *   gks lookup CONCEPT--EVA-TRI-BRAIN
  *   gks propose-inbound INSIGHT--FOO --title="My insight" --body="..."
+ *   gks propose-inbound ADR--FOO --title="..." --body="..." \
+ *       --linked-symbol=src/x.ts:doThing:42 --linked-symbol=src/y.ts:helper
  *   gks reflect MSP-SESS-260425ABCD
  *   gks init                                # scaffold .brain/ dirs in cwd
  *   gks status                              # show store stats
@@ -200,6 +202,7 @@ async function cmdProposeInbound(argv: string[]): Promise<void> {
       type: { type: 'string' },
       phase: { type: 'string' },
       confidence: { type: 'string' },
+      'linked-symbol': { type: 'string', multiple: true },
     },
   })
   const flags = readGlobals(values)
@@ -208,6 +211,7 @@ async function cmdProposeInbound(argv: string[]): Promise<void> {
     console.error('gks propose-inbound: missing proposed atomic id (TYPE--SLUG)')
     process.exit(1)
   }
+  const linkedSymbols = parseLinkedSymbols(values['linked-symbol'] as string[] | undefined)
   const store = await openStore(flags)
   const receipt = await store.proposeInbound({
     proposed_id: proposedId,
@@ -216,10 +220,41 @@ async function cmdProposeInbound(argv: string[]): Promise<void> {
     title: (values['title'] as string | undefined) ?? proposedId,
     body: (values['body'] as string | undefined) ?? '',
     ...(values['confidence'] ? { confidence: Number(values['confidence']) } : {}),
+    ...(linkedSymbols.length > 0 ? { linked_symbols: linkedSymbols } : {}),
   })
   emit(flags, receipt, () => {
     console.log(`✓ ${proposedId} → ${receipt.path}`)
     console.log(`  reviewId: ${receipt.reviewId}`)
+    if (linkedSymbols.length > 0) {
+      console.log(`  linked_symbols: ${linkedSymbols.length}`)
+    }
+  })
+}
+
+/**
+ * Parse `--linked-symbol` flag values. Accepted forms:
+ *   src/x.ts                                 (file only)
+ *   src/x.ts:fnName                          (file + symbol)
+ *   src/x.ts:fnName:42                       (file + symbol + line)
+ * Multiple flags on the same command line stack into one array.
+ */
+function parseLinkedSymbols(
+  raw: string[] | undefined,
+): Array<{ file: string; fn?: string; line?: number }> {
+  if (!raw || raw.length === 0) return []
+  return raw.map((s) => {
+    const parts = s.split(':')
+    const file = parts[0]
+    if (!file) {
+      throw new Error(`gks propose-inbound: invalid --linked-symbol '${s}' (empty file path)`)
+    }
+    const out: { file: string; fn?: string; line?: number } = { file }
+    if (parts[1]) out.fn = parts[1]
+    if (parts[2]) {
+      const n = Number.parseInt(parts[2], 10)
+      if (Number.isFinite(n) && n > 0) out.line = n
+    }
+    return out
   })
 }
 
@@ -373,6 +408,7 @@ Subcommands
   recall QUERY    [--top-k=5] [--threshold=...] [--strategy=multi] [--cross-namespace]
   lookup ID
   propose-inbound TYPE--SLUG --title="..." --body="..." [--phase=1] [--type=insight]
+                                             [--linked-symbol=src/x.ts:fn:line ...]
   reflect SESSION_ID [--force-consolidate] [--no-persist]
   init                                       scaffold .brain/ dirs in --root
   status                                     show store stats

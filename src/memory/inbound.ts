@@ -92,6 +92,11 @@ function renderArtifactMarkdown(a: InboundArtifact, reviewId: string): string {
   if (a.namespace?.user_id) fm['user_id'] = a.namespace.user_id
   if (a.namespace?.session_id) fm['session_id'] = a.namespace.session_id
   if (a.namespace?.agent_id) fm['agent_id'] = a.namespace.agent_id
+  // Code symbols this atom governs/references (see ADR-009). Stored
+  // as JSON inside YAML to keep nested objects readable.
+  if (a.linked_symbols && a.linked_symbols.length > 0) {
+    fm['linked_symbols'] = a.linked_symbols
+  }
 
   const reason = a.reason ? `\n## Proposal Rationale\n\n${a.reason}\n` : ''
   return `---\n${yamlLite(fm)}---\n\n# ${a.title}\n\n${a.body.trim()}\n${reason}`

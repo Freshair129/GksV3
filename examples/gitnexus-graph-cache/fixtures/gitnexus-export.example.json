@@ -1,0 +1,21 @@
+{
+  "_": "Mock GitNexus AST export. In a real deployment this comes from `gitnexus export --format=json` (or the equivalent Cypher dump via the `cypher` MCP tool). The shape here is the minimum useful subset — your real adapter may carry more fields.",
+  "synced_at": "2026-04-26T15:00:00Z",
+  "codebase_sha": "abc123def456",
+  "nodes": [
+    { "id": "fn:src/memory/inbound.ts:renderArtifactMarkdown", "labels": ["function"], "props": { "file": "src/memory/inbound.ts", "name": "renderArtifactMarkdown", "line": 77 } },
+    { "id": "fn:src/memory/inbound.ts:propose", "labels": ["function"], "props": { "file": "src/memory/inbound.ts", "name": "propose", "line": 44 } },
+    { "id": "fn:src/lib/yaml-lite.ts:yamlLite", "labels": ["function"], "props": { "file": "src/lib/yaml-lite.ts", "name": "yamlLite", "line": 16 } },
+    { "id": "fn:src/lib/yaml-lite.ts:yamlScalar", "labels": ["function"], "props": { "file": "src/lib/yaml-lite.ts", "name": "yamlScalar", "line": 38 } },
+    { "id": "fn:src/memory/api.ts:retain", "labels": ["function"], "props": { "file": "src/memory/api.ts", "name": "retain", "line": 56 } },
+    { "id": "file:src/memory/inbound.ts", "labels": ["file"], "props": { "path": "src/memory/inbound.ts" } },
+    { "id": "file:src/lib/yaml-lite.ts", "labels": ["file"], "props": { "path": "src/lib/yaml-lite.ts" } }
+  ],
+  "edges": [
+    { "from": "fn:src/memory/inbound.ts:propose", "to": "fn:src/memory/inbound.ts:renderArtifactMarkdown", "rel": "calls" },
+    { "from": "fn:src/memory/inbound.ts:renderArtifactMarkdown", "to": "fn:src/lib/yaml-lite.ts:yamlLite", "rel": "calls" },
+    { "from": "fn:src/lib/yaml-lite.ts:yamlLite", "to": "fn:src/lib/yaml-lite.ts:yamlScalar", "rel": "calls" },
+    { "from": "fn:src/memory/api.ts:retain", "to": "fn:src/memory/inbound.ts:propose", "rel": "calls" },
+    { "from": "file:src/memory/inbound.ts", "to": "file:src/lib/yaml-lite.ts", "rel": "imports" }
+  ]
+}

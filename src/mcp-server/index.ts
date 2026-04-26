@@ -30,7 +30,7 @@ import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('mcp-server')
 
-const SERVER_VERSION = '3.5.0'
+const SERVER_VERSION = '3.5.1'
 
 export interface GksMcpServerOptions {
   /** The store to expose. Caller owns its lifecycle. */
@@ -149,7 +149,7 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     'gks_propose_inbound',
     {
       description:
-        'Propose a new atomic note for the inbound queue. Reviewers later promote it into the canonical gks/ tree. NEVER writes to gks/ directly.',
+        'Propose a new atomic note for the inbound queue. Reviewers later promote it into the canonical gks/ tree. NEVER writes to gks/ directly. Optional `linked_symbols` records code references the orchestrator above (e.g. MSP) can resolve via a code-intelligence peer like GitNexus — see ADR-009.',
       inputSchema: {
         proposed_id: z.string().regex(ATOMIC_ID_PATTERN).describe('TYPE--SLUG format.'),
         phase: z.number().int().min(0).max(5),
@@ -157,6 +157,18 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
         title: z.string(),
         body: z.string(),
         confidence: z.number().min(0).max(1).optional(),
+        linked_symbols: z
+          .array(
+            z
+              .object({
+                file: z.string().describe('Repo-relative path.'),
+                fn: z.string().optional(),
+                line: z.number().int().positive().optional(),
+              })
+              .strict(),
+          )
+          .optional()
+          .describe('Code symbols this atom governs — opaque to GKS; resolved upstream.'),
       },
     },
     async (args) => {
@@ -167,6 +179,7 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
         title: args.title,
         body: args.body,
         ...(args.confidence !== undefined ? { confidence: args.confidence } : {}),
+        ...(args.linked_symbols ? { linked_symbols: args.linked_symbols } : {}),
       })
       return jsonReply({ ok: true, path: receipt.path, review_id: receipt.reviewId })
     },

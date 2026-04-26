@@ -135,6 +135,27 @@ export interface EpisodicMemory {
   summary: string
 }
 
+/**
+ * Reference to a code symbol in the consuming repository. Used by atoms
+ * (ADRs / FEATs / FRAMEs) to point at the function / class / type they
+ * govern, and by the orchestrator above GKS (e.g. MSP) to correlate
+ * recall results with code-intelligence subsystems like GitNexus —
+ * see ADR-009 + docs/MSP_RELATIONSHIP.md § "Coexisting with peer subsystems".
+ *
+ * GKS only stores + serialises these references. It does NOT resolve
+ * them (no AST, no call-graph) — that's the orchestrator's job. So a
+ * `linked_symbols` entry pointing at a symbol that doesn't exist is
+ * not an error here; resolution happens upstream.
+ */
+export interface LinkedSymbol {
+  /** Repo-relative file path, e.g. "src/memory/consolidator-llm.ts". */
+  file: string
+  /** Optional symbol name within the file, e.g. "formatStep". */
+  fn?: string
+  /** Optional one-based line number, helpful for fast jump-to-source. */
+  line?: number
+}
+
 export interface InboundArtifact {
   proposed_id: string
   phase: Phase
@@ -151,6 +172,11 @@ export interface InboundArtifact {
    * human review.
    */
   namespace?: Namespace
+  /**
+   * Code symbols this atom governs / references. See LinkedSymbol docs
+   * + ADR-009 for the GKS↔code-intelligence boundary.
+   */
+  linked_symbols?: LinkedSymbol[]
 }
 
 export interface InboundReceipt {
@@ -263,6 +289,13 @@ export interface RetainInput {
   conflictThreshold?: number
   /** Optional explicit valid_from for the new doc. Defaults to now. */
   validFrom?: string
+  /**
+   * Code symbols this retain governs. Forwarded onto the InboundArtifact
+   * (when proposeInbound is true) and rendered into the proposal's
+   * frontmatter. Resolution against an actual codebase is the
+   * orchestrator's job (see ADR-009).
+   */
+  linkedSymbols?: LinkedSymbol[]
 }
 
 export interface RetainResult {

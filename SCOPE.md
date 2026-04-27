@@ -110,6 +110,10 @@ move these into `src/`. Pointers to where they belong follow each item.
 - **Stakes-level / confidence-locking model** — EVA-specific epistemic
   workflow.
 
+→ Standalone technical reference: [`docs/TECHNICAL-OVERVIEW.md`](./docs/TECHNICAL-OVERVIEW.md)
+covers the full architecture, API, layers, backends, MCP / CLI surfaces,
+and cross-cutting concerns — independent of any MSP-style framework.
+
 → Background: [`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md)
 records why GKS was designed to *receive* an MSP-shaped layer above
 without implementing one itself.

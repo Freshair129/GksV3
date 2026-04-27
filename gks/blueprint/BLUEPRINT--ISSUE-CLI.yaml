@@ -1,0 +1,83 @@
+---
+id: BLUEPRINT--ISSUE-CLI
+phase: 3
+type: blueprint
+status: stable
+vault_id: GKS-CORE
+title: Self-hosted issue tracker — CLI implementation plan
+tags: [blueprint, issue-tracking]
+crosslinks:
+  implements: [FEAT--ISSUE-TRACKER]
+  references: [ADR--EXTENDED-TAXONOMY]
+geography:
+  - src/issue/types.ts
+  - src/issue/store.ts
+  - bin/gks.ts:cmdIssue
+  - test/issue/store.test.ts
+  - test/cli/gks-issue.test.ts
+---
+
+# BLUEPRINT — Issue tracker CLI
+
+## Architectural pattern
+
+Storage primitive parallel to `MemoryStore` — `IssueStore` class
+owning `<root>/gks/issues/<ID>.md` files. Light-governance tier
+(direct write, schema-validated, append-only Discussion convention).
+
+## Data logic
+
+```yaml
+status_enum: [open, triaged, in_progress, blocked, closed, wontfix]
+priority_enum: [low, medium, high, urgent]
+auto_stamp:
+  - field: closed_at
+    when: status ∈ {closed, wontfix}
+  - field: updated_at
+    when: any mutation
+slug_strategy: title → uppercase + dash + truncate(60); collision → +6char hex
+discussion: append-only "## Discussion" section, format
+            "### <ISO> [<actor>] <action>"
+audit_ops:
+  - issue_create
+  - issue_comment
+  - issue_status_change
+  - issue_assign
+  - issue_close
+```
+
+## Geography (1:1 with code)
+
+- `src/issue/types.ts` — `Issue`, `IssueStatus`, `IssuePriority`, validators, `slugifyTitle`, `makeIssueId`
+- `src/issue/store.ts` — `IssueStore` class with create / list / show / comment / setStatus / assign / close
+- `bin/gks.ts:cmdIssue` — dispatcher + 8 subcommand handlers + usage
+- `src/memory/audit.ts` — extends `AuditOp` with 5 issue ops
+- `test/issue/store.test.ts` — 13 unit tests
+- `test/cli/gks-issue.test.ts` — 9 E2E CLI tests
+
+## API contracts
+
+```ts
+class IssueStore {
+  create(args: CreateIssueArgs): Promise<Issue>
+  list(filter?: ListFilter): Promise<Issue[]>
+  show(id: string): Promise<{ issue: Issue; body: string }>
+  comment(id: string, text: string, actor: string): Promise<Issue>
+  setStatus(id: string, newStatus: IssueStatus, actor: string): Promise<Issue>
+  assign(id: string, assignee: string, actor: string): Promise<Issue>
+  close(id: string, actor: string, resolvedBy?: string): Promise<Issue>
+}
+```
+
+## Verification plan
+
+**Automated:**
+- 13 unit tests covering: create / collision / list filters / comment
+  ordering / status enum / no-op / closed_at / assign log / close
+  with resolved-by / unknown id / empty dir / status round-trip
+- 9 E2E CLI tests covering: new / list / show / comment / status /
+  invalid status / assign+close / dashboard text+md / JSON mode
+
+**Manual:**
+- Full lifecycle smoke (open → triage → in_progress → close + comment)
+- Audit log inspection — every mutation produces an event

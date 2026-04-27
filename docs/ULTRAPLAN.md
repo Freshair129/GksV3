@@ -225,7 +225,7 @@ Thin wrapper around the patterns in `examples/quickstart.ts`.
 
 ### D.3 — Architecture documentation `~0.5d`
 
-- ADR series in `gks/phase2_atomic/concept/adr-*.md` (BLUEPRINT layout)
+- ADR series in `gks/adr/<slug>.md` (flat type-folder layout per ADR-013)
 - Mermaid diagrams: layer dependency graph, retain/recall flow, bi-temporal
   lifecycle
 

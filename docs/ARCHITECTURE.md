@@ -144,11 +144,14 @@ the edge that was current then, not now.
 ├── gks/                                  ← CANONICAL, READ-MOSTLY
 │   ├── 00_index/
 │   │   └── atomic_index.jsonl           ← AtomicLayer reads this
-│   └── phase{1,2,3}_atomic/
-│       ├── concept/
-│       ├── frame/
-│       ├── adr/
-│       └── ...                          ← markdown notes
+│   ├── concept/                         ← CONCEPT-- atoms
+│   ├── frame/                           ← FRAME--
+│   ├── adr/                             ← ADR--
+│   ├── feat/                            ← FEAT--
+│   ├── algo/                            ← ALGO-- · …
+│   ├── blueprint/                       ← BLUEPRINT-- (yaml)
+│   ├── issues/                          ← ISSUE-- (light-tier per ADR-012)
+│   └── ...                              ← one folder per type (ADR-013)
 └── .brain/msp/projects/evaAI/
     ├── memory/                          ← episodic markdown summaries
     │   └── MSP-SESS-...md

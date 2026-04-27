@@ -1127,22 +1127,38 @@ These belong to the MSP-gatekeeper layer above GKS — see ADR-008 +
 `gksLayout(root)` is the single source of truth for paths — used by
 the CLI scaffold, MCP server, and `MemoryStore` defaults.
 
+**Per ADR-013 — atom folders are organised by `type`, not by `phase`.**
+`phase` lives in frontmatter as a planning attribute, not in the folder
+path. One folder per atom type (singular nouns), no phase prefix.
+
 ```
 <root>/
 ├── gks/                                  # canonical (global, reviewed) — strict tier
 │   ├── 00_index/
 │   │   └── atomic_index.jsonl            # AtomicLayer source — rebuilt by `npm run msp:index`
-│   ├── adrs/                             # ADR-- atoms
-│   ├── concepts/                         # CONCEPT-- atoms
-│   ├── features/                         # FEAT-- atoms
-│   ├── algorithms/                       # ALGO-- atoms
-│   ├── flows/                            # FLOW-- atoms
-│   ├── entities/                         # ENTITY-- atoms
-│   ├── frameworks/                       # FRAME-- atoms
-│   ├── parameters/                       # PARAMS-- atoms
-│   ├── modules/                          # MOD-- atoms
-│   ├── blueprints/                       # BLUEPRINT-- (.yaml)
-│   ├── audits/                           # AUDIT-- atoms
+│   ├── concept/                          # CONCEPT-- atoms
+│   ├── adr/                              # ADR--
+│   ├── feat/                             # FEAT--
+│   ├── algo/                             # ALGO--
+│   ├── flow/                             # FLOW--
+│   ├── entity/                           # ENTITY--
+│   ├── frame/                            # FRAME--
+│   ├── parameters/                       # PARAMS--
+│   ├── module/                           # MOD--
+│   ├── blueprint/                        # BLUEPRINT-- (.yaml)
+│   ├── audit/                            # AUDIT--
+│   ├── skill/                            # SKILL--      (ADR-012 cluster)
+│   ├── protocol/                         # PROTOCOL--
+│   ├── guardrail/                        # GUARDRAIL--
+│   ├── policy/                           # POLICY--
+│   ├── persona/                          # PERSONA--
+│   ├── fr/                               # FR--          (ADR-012 RE cluster)
+│   ├── nfr/                              # NFR--
+│   ├── constraint/                       # CONSTRAINT--
+│   ├── inc/                              # INC--          (ADR-012 ops cluster)
+│   ├── risk/                             # RISK--
+│   ├── runbook/                          # RUNBOOK--
+│   ├── slo/                              # SLO--
 │   └── issues/                           # ISSUE-- atoms — light-tier (ADR-012)
 │
 └── .brain/msp/projects/evaAI/            # per-deployment runtime state

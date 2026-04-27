@@ -16,6 +16,7 @@ obvious from the code alone. One file per decision; status is one of
 | [008](./008-gks-storage-engine-scope.md) | GKS as storage engine; Memory OS layer above (MSP-shaped contract) | accepted | 2026-04-26 |
 | [009](./009-msp-as-orchestrator.md) | MSP orchestrates peer subsystems; GKS does not proxy them | accepted | 2026-04-26 |
 | [012](./012-extended-taxonomy.md) | Extended atomic taxonomy + ISSUE-- as self-hosted tracker | accepted | 2026-04-26 |
+| [013](./013-flat-atom-layout.md) | Atom folders organised by type, not by phase | accepted | 2026-04-27 |
 | [010](./010-reverse-citation-lookup.md) | Bidirectional traceability via reverse citation lookup | accepted | 2026-04-26 |
 | [011](./011-test-policy.md) | Test policy: when written, when run, what's required | accepted | 2026-04-26 |
 
@@ -24,6 +25,6 @@ obvious from the code alone. One file per decision; status is one of
 ADRs in this directory are the working reference. Once an ADR is
 `accepted` and the implementation lands, copy it into the inbound queue
 (`npm run gks` → `propose-inbound`) so it can be promoted to
-`gks/phase2_atomic/concept/adr-*.md` after human review. We never write
+`gks/adr/<slug>.md` after human review. We never write
 to `gks/` directly — that's the rule from `BLUEPRINT--memory`
 § write_rules, and ADRs are no exception.

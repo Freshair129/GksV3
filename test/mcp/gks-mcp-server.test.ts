@@ -132,7 +132,7 @@ describe('gks-mcp-server', () => {
       type: 'adr',
       status: 'stable',
       vault_id: 'V',
-      path: 'phase2_atomic/concept/adr-parse-trace-norm.md',
+      path: 'concept/adr-parse-trace-norm.md',
       title: 'Parse-trace normalization',
       linked_symbols: [{ file: 'src/memory/consolidator-llm.ts', fn: 'formatStep' }],
     }

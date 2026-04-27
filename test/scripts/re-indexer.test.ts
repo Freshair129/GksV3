@@ -53,7 +53,7 @@ describe('re-indexer (npm run msp:index)', () => {
   it('walks gks/**/*.md, parses frontmatter, writes a deterministic JSONL', async () => {
     await writeAtom(
       root,
-      'phase2_atomic/concept/eva.md',
+      'concept/eva.md',
       [
         'id: CONCEPT--EVA',
         'phase: 1',
@@ -66,7 +66,7 @@ describe('re-indexer (npm run msp:index)', () => {
     )
     await writeAtom(
       root,
-      'phase2_atomic/adr/foo.md',
+      'adr/foo.md',
       [
         'id: ADR--FOO',
         'phase: 2',
@@ -83,7 +83,7 @@ describe('re-indexer (npm run msp:index)', () => {
     const rows = await readIndex(root)
     // Sorted by id alphabetically (deterministic output for diff-friendly).
     expect(rows.map((r) => r['id'])).toEqual(['ADR--FOO', 'CONCEPT--EVA'])
-    expect(rows[0]!['path']).toBe('phase2_atomic/adr/foo.md')
+    expect(rows[0]!['path']).toBe('adr/foo.md')
     expect(rows[1]!['title']).toBe('EVA')
     expect(rows[1]!['tags']).toEqual(['a', 'b'])
   }, 30_000)
@@ -91,7 +91,7 @@ describe('re-indexer (npm run msp:index)', () => {
   it('preserves linked_symbols + geography for ADR-010 reverse lookup', async () => {
     await writeAtom(
       root,
-      'phase2_atomic/adr/parse-trace.md',
+      'adr/parse-trace.md',
       [
         'id: ADR--PARSE-TRACE-NORM',
         'phase: 2',
@@ -105,7 +105,7 @@ describe('re-indexer (npm run msp:index)', () => {
     )
     await writeAtom(
       root,
-      'phase3_blueprint/feat-stock.md',
+      'blueprint/feat-stock.md',
       [
         'id: BLUEPRINT--FEAT-STOCK',
         'phase: 3',
@@ -148,17 +148,17 @@ describe('re-indexer (npm run msp:index)', () => {
   it('skips files without an id field + reports counts', async () => {
     await writeAtom(
       root,
-      'phase2_atomic/adr/no-id.md',
+      'adr/no-id.md',
       ['type: adr', 'phase: 2'].join('\n'),
     )
     await writeAtom(
       root,
-      'phase2_atomic/adr/bad-id.md',
+      'adr/bad-id.md',
       ['id: lowercase-bad', 'phase: 2', 'type: adr', 'status: draft', 'vault_id: V'].join('\n'),
     )
     await writeAtom(
       root,
-      'phase2_atomic/adr/ok.md',
+      'adr/ok.md',
       ['id: ADR--OK', 'phase: 2', 'type: adr', 'status: draft', 'vault_id: V'].join('\n'),
     )
 
@@ -174,7 +174,7 @@ describe('re-indexer (npm run msp:index)', () => {
   it('--dry-run reports stats without writing the JSONL', async () => {
     await writeAtom(
       root,
-      'phase2_atomic/concept/eva.md',
+      'concept/eva.md',
       ['id: CONCEPT--EVA', 'phase: 1', 'type: concept', 'status: stable', 'vault_id: V'].join('\n'),
     )
 
@@ -198,7 +198,7 @@ describe('re-indexer (npm run msp:index)', () => {
     )
     await writeAtom(
       root,
-      'phase2_atomic/concept/eva.md',
+      'concept/eva.md',
       ['id: CONCEPT--EVA', 'phase: 1', 'type: concept', 'status: stable', 'vault_id: V'].join('\n'),
     )
 

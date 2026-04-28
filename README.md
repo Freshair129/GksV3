@@ -231,6 +231,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 
 - [`SCOPE.md`](./SCOPE.md) — **what GKS is and isn't** (read first if proposing features)
 - [`docs/ONBOARDING.md`](./docs/ONBOARDING.md) — **adopting GKS in an existing project** (incremental, 7 phases)
+- [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) — **daily doc-to-code loop** (P1→P6 + hotfix + Agent Rule, with every CLI command at the right step)
 - [`docs/TECHNICAL-OVERVIEW.md`](./docs/TECHNICAL-OVERVIEW.md) — **standalone technical reference** (architecture, API, layers, backends, MCP, CLI, all cross-cutting concerns)
 - [`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md) — why GKS is paired with MSP-shaped Memory OS layers + the contract between them
 - [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md) — canonical reference for all 30+ atomic prefixes (ADR / FEAT / SKILL / GUARDRAIL / FR / NFR / INC / ISSUE / …)

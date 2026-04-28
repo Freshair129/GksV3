@@ -19,6 +19,7 @@ obvious from the code alone. One file per decision; status is one of
 | [013](./013-flat-atom-layout.md) | Atom folders organised by type, not by phase | accepted | 2026-04-27 |
 | [010](./010-reverse-citation-lookup.md) | Bidirectional traceability via reverse citation lookup | accepted | 2026-04-26 |
 | [011](./011-test-policy.md) | Test policy: when written, when run, what's required | accepted | 2026-04-26 |
+| [014](./014-doc-to-code-enforcement.md) | Doc-to-code enforcement model (master-spec §6 → GKS primitives) | accepted | 2026-04-28 |
 
 ## Promotion to gks/
 

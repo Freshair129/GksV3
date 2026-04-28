@@ -239,7 +239,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 - [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — running real-scale evals
 - [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) — OTel setup + dashboards
 - [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) — schema versioning policy
-- [`docs/adr/`](./docs/adr/) — architecture decision records (13 entries)
+- [`docs/adr/`](./docs/adr/) — architecture decision records (14 entries)
 - [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 7 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, and the extended taxonomy. Try it:
   ```sh
   npx tsx bin/gks.ts lookup ADR--REVERSE-CITATION-LOOKUP --root=.

@@ -9,8 +9,9 @@ valid_to: <ISO timestamp>        # = commit time + 48 h (REQUIRED)
 linked_symbols:
   - { file: src/affected/file.ts, fn: affectedFn }
 crosslinks:
-  related_incidents: []          # INC-- if a post-mortem exists
-  resolved_by: []                # filled in by backfill atoms (CONCEPT--, ADR--, BLUEPRINT--)
+  related_incidents: []          # INC-- if a post-mortem exists (Backlink/Peer Link)
+  resolved_by: []                # filled in by backfill atoms (CONCEPT--, ADR--, BLUEPRINT--) (Resolution Link)
+  references: []                 # Original ISSUE-- or context for the fix (Context Link)
 meta:
   commit_sha: <full SHA>
   ref: <branch / tag>

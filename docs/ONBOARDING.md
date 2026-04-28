@@ -115,7 +115,7 @@ linked_symbols:
 Re-index:
 
 ```sh
-npm run msp:reindex
+npm run msp:index
 ```
 
 Verify the reverse lookup works:

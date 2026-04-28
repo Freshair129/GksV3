@@ -7,8 +7,9 @@ vault_id: <YOUR-PROJECT>
 title: <Service + metric>
 tags: [slo, monitoring]
 crosslinks:
-  enforces: []                  # NFR-- this SLO operationalises
-  runbooks: []                  # RUNBOOK-- triggered by breach
+  enforces: []                  # NFR-- this SLO operationalises (Hierarchical Link)
+  runbooks: []                  # RUNBOOK-- triggered by breach (Action Link)
+  references: []                # Contextual background / external dashboards (Context Link)
 ---
 
 # SLO — <Title>

@@ -101,6 +101,9 @@ async function main(): Promise<void> {
     case 'new-feature':
       await cmdNewFeature(subArgv)
       break
+    case 'inbound':
+      await cmdInbound(subArgv)
+      break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
       printUsage()
@@ -888,6 +891,96 @@ async function cmdNewFeature(argv: string[]): Promise<void> {
   })
 }
 
+// ─── inbound queue (review + promote) ──────────────────────────────────────
+
+async function cmdInbound(argv: string[]): Promise<void> {
+  const sub = argv[0]
+  if (!sub) {
+    console.error('gks inbound: missing subcommand. Try: list | show | promote')
+    process.exit(1)
+  }
+  const rest = argv.slice(1)
+  switch (sub) {
+    case 'list': await cmdInboundList(rest); break
+    case 'show': await cmdInboundShow(rest); break
+    case 'promote': await cmdInboundPromote(rest); break
+    default:
+      console.error(`gks inbound: unknown subcommand '${sub}'`)
+      process.exit(1)
+  }
+}
+
+async function cmdInboundList(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: { ...GLOBAL_OPTIONS, type: { type: 'string' } },
+  })
+  const flags = readGlobals(values)
+  const store = await openStore(flags)
+  let candidates = await store.inbound.list()
+  const typeFilter = values['type'] as string | undefined
+  if (typeFilter) candidates = candidates.filter((c) => c.type === typeFilter)
+  emit(flags, candidates, () => {
+    if (candidates.length === 0) {
+      console.log('inbound: empty')
+      return
+    }
+    for (const c of candidates) {
+      console.log(`${c.proposed_id.padEnd(36)}  ${c.type.padEnd(10)}  ${c.proposed_at ?? ''}`)
+    }
+  })
+}
+
+async function cmdInboundShow(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks inbound show: missing proposed_id (e.g. ADR--FOO)')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+  const found = await store.inbound.readById(id)
+  if (!found) {
+    console.error(`gks inbound show: no candidate '${id}'`)
+    process.exit(1)
+  }
+  emit(flags, { id, path: found.path, text: found.text }, () => {
+    console.log(`# inbound: ${id}`)
+    console.log(`# path:   ${found.path}\n`)
+    console.log(found.text)
+  })
+}
+
+async function cmdInboundPromote(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { ...GLOBAL_OPTIONS, force: { type: 'boolean' }, status: { type: 'string' } },
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks inbound promote: missing proposed_id')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+  const result = await store.inbound.promote(id, {
+    force: values['force'] === true,
+    status: values['status'] as string | undefined,
+  })
+  emit(flags, result, () => {
+    console.log(`✓ promoted ${result.id}`)
+    console.log(`  ${result.source}`)
+    console.log(`  → ${result.dest}`)
+    console.log('  remember: rebuild the index with `npm run msp:index`')
+  })
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -959,6 +1052,9 @@ Subcommands
   lookup-by-symbol src/x.ts[:fn[:line]]    reverse: which atoms cite this code?
   propose-inbound TYPE--SLUG --title="..." --body="..." [--phase=1] [--type=insight]
                                              [--linked-symbol=src/x.ts:fn:line ...]
+  inbound list [--type=adr]                  candidates awaiting review
+  inbound show ID                            full text of a candidate
+  inbound promote ID [--force] [--status=...]   move from inbound to gks/<type>/
   reflect SESSION_ID [--force-consolidate] [--no-persist]
   init                                       scaffold .brain/ dirs in --root
   status                                     show store stats

@@ -7,9 +7,9 @@ vault_id: <YOUR-PROJECT>
 title: <One-line algorithm summary>
 tags: [<domain>]
 crosslinks:
-  used_by: []                   # FEAT-- that depend on this
-  references: []                # papers / prior art
-linked_symbols: []
+  used_by: []                   # FEAT-- that depend on this (Manual Backlink)
+  references: []                # papers / prior art / background (External/Forward Link)
+linked_symbols: []              # Implementation code (Code Citation)
 ---
 
 # ALGO — <Title>

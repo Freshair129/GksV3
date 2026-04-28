@@ -11,9 +11,10 @@ occurred_at: <ISO timestamp>
 resolved_at: <ISO timestamp>
 duration_min: <int>
 crosslinks:
-  trigger_events: []            # MSP-INC-* raw event log entries
-  related_issues: []            # ISSUE-- this incident touched
-  resolved_by: []               # ADR-- chosen as remediation
+  trigger_events: []            # MSP-INC-* raw event log entries (Log Reference)
+  related_issues: []            # ISSUE-- this incident touched (Peer/Backlink)
+  resolved_by: []               # ADR-- / FEAT-- chosen as remediation (Resolution Link)
+  references: []                # Prior incidents or background context (Context Link)
 linked_symbols: []              # symbols implicated
 ---
 

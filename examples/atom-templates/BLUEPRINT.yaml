@@ -9,6 +9,10 @@ metadata:
   status: draft                 # draft | approved | implemented
   version: 0.1.0
   author: <MSP-USR-… or MSP-AGT-…>
+  crosslinks:
+    references: []              # ADR-- / FEAT-- background context (Context Link)
+    governed_by: []             # ADR-- architecture rules (Governance Link)
+    part_of: []                 # MOD-- module manifest (Hierarchical Link)
 
 architectural_pattern:
   pattern: repository|service|controller|adapter|...

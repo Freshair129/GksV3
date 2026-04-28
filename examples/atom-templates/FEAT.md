@@ -7,10 +7,12 @@ vault_id: <YOUR-PROJECT>
 title: <One-line feature summary>
 tags: [user-facing, <area>]
 crosslinks:
-  implements: []                # FR-- / NFR-- this feature satisfies
-  references: []                # CONCEPT-- / ADR-- background
-  blueprint: BLUEPRINT--<feature-id>
-linked_symbols: []              # files / functions implementing this
+  implements: []                # FR-- / NFR-- this feature satisfies (Requirement Link)
+  satisfies: []                 # Explicitly link to functional/non-functional requirements
+  references: []                # CONCEPT-- / ADR-- background context (Context Link)
+  governed_by: []               # ADR-- that dictates how this feature is built (Governance Link)
+  blueprint: BLUEPRINT--<feature-id> # The implementation plan for this feature (Plan Link)
+linked_symbols: []              # files / functions implementing this (Code Citation)
 ---
 
 # FEAT — <Title>

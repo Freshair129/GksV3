@@ -1,0 +1,43 @@
+name: GKS Gates
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  gate-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Reindex & Check Drift
+        run: |
+          npm run msp:index
+          git diff --exit-code -- gks/00_index/atomic_index.jsonl
+        # Fails if reindexing produces a diff (index must be canonical)
+
+      - name: Validate Links
+        run: npx tsx bin/gks.ts validate --links --root=.
+
+      - name: Verify Feature Flows
+        run: |
+          # Find all FEAT-- files in gks/feat/ and verify their chains
+          for f in $(ls gks/feat/FEAT--*.md 2>/dev/null); do
+            # Extract ID from filename (e.g. gks/feat/FEAT--MY-FEAT.md -> FEAT--MY-FEAT)
+            ID=$(basename "$f" .md)
+            echo "Verifying flow for $ID..."
+            npx tsx bin/gks.ts verify-flow "$ID" --root=.
+          done

@@ -8,8 +8,9 @@ title: <One-line protocol summary>
 tags: [interaction-contract]
 participants: [agent, system, ...]
 crosslinks:
-  used_by: []                   # SKILL-- / MOD-- that depend on this
-  references: []
+  used_by: []                   # SKILL-- / MOD-- that depend on this (Inverse Link)
+  references: []                # ADR-- / FEAT-- background context (Context Link)
+  governed_by: []               # GUARDRAIL-- limiting this protocol (Governance Link)
 ---
 
 # PROTOCOL — <Title>

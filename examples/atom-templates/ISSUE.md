@@ -11,11 +11,12 @@ created_at: <ISO timestamp>
 updated_at: <ISO timestamp>
 linked_symbols: []
 crosslinks:
-  related_incidents: []         # INC-- if this issue stems from an incident
-  resolved_by: []               # ADR-- when closing — what fixed it
-  duplicates_of: []             # ISSUE-- if this is a duplicate
-  blocks: []                    # ISSUE-- this one is blocking
-  blocked_by: []                # ISSUE-- blocking this one
+  related_incidents: []         # INC-- if this issue stems from an incident (Backlink)
+  resolved_by: []               # ADR-- / FEAT-- / HOTFIX-- when closing — what fixed it (Forward/Fix Link)
+  duplicates_of: []             # ISSUE-- if this is a duplicate (Peer Link)
+  blocks: []                    # ISSUE-- this one is blocking (Dependency Link)
+  blocked_by: []                # ISSUE-- blocking this one (Dependency Link)
+  references: []                # External discussions / logs / relevant background context
 ---
 
 # ISSUE — <Short title>

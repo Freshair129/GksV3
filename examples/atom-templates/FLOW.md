@@ -7,8 +7,10 @@ vault_id: <YOUR-PROJECT>
 title: <One-line flow summary>
 tags: [data-flow|ui-flow|sequence]
 crosslinks:
-  participants: []              # MOD-- / ENTITY-- / ENDPOINT-- involved
-  references: []
+  participants: []              # MOD-- / ENTITY-- / ENDPOINT-- involved (Peer/Actor Link)
+  references: []                # ADR-- / FEAT-- background context (Context Link)
+  preceded_by: []               # FLOW-- that happens before this one (Sequence Link)
+  followed_by: []               # FLOW-- that happens after this one (Sequence Link)
 ---
 
 # FLOW — <Title>

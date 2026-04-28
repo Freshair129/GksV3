@@ -8,9 +8,10 @@ vault_id: <YOUR-PROJECT>
 title: <One-line constraint>
 tags: [safety, runtime-enforced]
 crosslinks:
-  enforces: []                  # POLICY-- / CONSTRAINT-- this rule comes from
-  enforced_by: []               # SKILL-- / MOD-- that check this at runtime
-  references: []                # ADR-- decisions this implements
+  enforces: []                  # POLICY-- / CONSTRAINT-- this rule comes from (Hierarchical Link)
+  enforced_by: []               # SKILL-- / MOD-- that check this at runtime (Inverse Link)
+  references: []                # ADR-- decisions this implements (Context Link)
+  triggered_by: []              # INC-- that led to this guardrail (Resolution Link)
 ---
 
 # GUARDRAIL — <Title>

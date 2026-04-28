@@ -7,8 +7,10 @@ vault_id: <YOUR-PROJECT>
 title: <Entity name + brief role>
 tags: [data-model]
 crosslinks:
-  used_by: []                   # FEAT-- / ENDPOINT-- that consume this
-  related_entities: []          # ENTITY-- with FK / association
+  used_by: []                   # FEAT-- / ENDPOINT-- that consume this (Manual Backlink)
+  related_entities: []          # ENTITY-- with FK / association (Peer Link)
+  part_of: []                   # MOD-- this entity belongs to (Hierarchical Link)
+  references: []                # General references or external schemas
 ---
 
 # ENTITY — <Name>

@@ -8,8 +8,9 @@ title: <One-line scenario>
 tags: [runbook, on-call]
 last_drilled: <ISO timestamp>
 crosslinks:
-  triggered_by: []              # alert / SLO-- breach / INC-- pattern
-  related_incidents: []         # INC-- where this runbook was used
+  triggered_by: []              # alert / SLO-- breach / INC-- pattern (Event/Trigger Link)
+  related_incidents: []         # INC-- where this runbook was used (Backlink/Peer Link)
+  references: []                # ADR-- / FEAT-- background context (Context Link)
 ---
 
 # RUNBOOK — <Scenario>

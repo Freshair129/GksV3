@@ -7,9 +7,10 @@ vault_id: <YOUR-PROJECT>
 title: <One-line capability summary>
 tags: [agent-capability]
 crosslinks:
-  required_tools: []            # MCP tool / function names this skill uses
-  guardrails: []                # GUARDRAIL-- that govern this skill
-  references: []                # ADR-- justifying its existence
+  required_tools: []            # MCP tool / function names this skill uses (Dependency/Tool Link)
+  guardrails: []                # GUARDRAIL-- that govern this skill (Governance/Constraint Link)
+  references: []                # ADR-- justifying its existence (Context Link)
+  used_by: []                   # PERSONA-- or other SKILL-- using this (Inverse Link)
 ---
 
 # SKILL — <Title>

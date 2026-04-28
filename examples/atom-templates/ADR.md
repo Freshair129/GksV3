@@ -7,10 +7,10 @@ vault_id: <YOUR-PROJECT>
 title: <Short decision title>
 tags: [<area>, <relevant-tags>]
 crosslinks:
-  references: []                # ADR / FEAT / ALGO / etc this decision builds on
-  superseded_by: []             # filled when a later ADR replaces this one
-  resolves: []                  # ISSUE-- / INC-- this ADR closes
-linked_symbols: []              # see ADR-010 — symbols this decision governs
+  references: []                # ADR / FEAT / ALGO / etc this decision builds on (Forward Link)
+  superseded_by: []             # ID of the later ADR that replaces this one (Versioning Link)
+  resolves: []                  # ISSUE-- / INC-- this ADR closes (Resolution Link)
+linked_symbols: []              # see ADR-010 — symbols this decision governs (Code Citation)
 ---
 
 # ADR — <Title>

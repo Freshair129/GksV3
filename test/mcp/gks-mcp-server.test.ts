@@ -73,6 +73,12 @@ describe('gks-mcp-server', () => {
         'gks_propose_inbound',
         'gks_reflect',
         'gks_recall_cross_namespace',
+        'gks_verify_flow',
+        'gks_validate_links',
+        'gks_new_feature',
+        'gks_hotfix_open',
+        'gks_hotfix_list',
+        'gks_hotfix_close',
       ].sort(),
     )
   })

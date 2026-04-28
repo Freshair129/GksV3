@@ -26,9 +26,12 @@ the answer is here. Templates for each prefix live in
 | `PARAMS--` | Implementation | Constants / business config |
 | `FRAME--` | Implementation | Code standards / framework rules |
 | `BLUEPRINT--` | Implementation | YAML implementation plan |
-| `TASK--` | Implementation | Microtask (leaf node — must reference parent BLUEPRINT) |
 | `AUDIT--` | Implementation | Test results / quality report |
 | `HOTFIX--` | Ops | Hotfix escape-hatch atom (48h backfill window — ADR-014) |
+
+> **Microtasks (`T*.task.yaml`) are not atoms.** Live task state belongs to
+> the orchestrator (ADR-015) — see `docs/MSP_RELATIONSHIP.md` for the contract
+> and `gks new-feature --task-tracker=…` for the integration points.
 | `SKILL--` | Governance | Agent capability |
 | `PROTOCOL--` | Governance | Interaction contract |
 | `GUARDRAIL--` | Governance | Enforced behavioural policy |
@@ -126,13 +129,20 @@ where most contributions go.
 - **Phase:** P3.
 - **Required fields:** `metadata`, `architectural_pattern`, `data_logic`, `geography`, `api_contracts`, `verification_plan`.
 
-### `TASK--` · microtask
-- **Use for:** one concern of one feature, ≤ 400 token prompt, ≥ 2 acceptance tests.
-- **Don't use for:** anything bigger than a single function-shaped output.
-- **Phase:** P4.
-- **Tier:** light — direct write OK. Tasks churn fast and are leaf nodes.
-- **Required:** `crosslinks.parent_blueprint: [BLUEPRINT--…]` (orphan tasks are rejected on `propose-inbound`).
-- **Note:** older `T*.task.yaml` files (e.g. `T1_validate-input`, `T2_error-mapper`) are recognised; new tasks use the `TASK--<slug>` form so the chain walker (`gks verify-flow`) can traverse them.
+### Microtasks (`T*.task.yaml`) — **not atoms**
+- **Why:** task state churns hourly (assigned / in-progress / blocked /
+  done), accumulates comments, and has zero retrieval value once shipped.
+  Atoms are durable knowledge with settling time; tasks are
+  execution state that belongs at the orchestrator layer (ADR-015).
+- **Where they live:** `.brain/<ns>/tasks/<slug>/T<n>_<name>.task.yaml`
+  for self-hosted projects, `msp/projects/<id>/tasks/` for MSP-layered
+  projects, or an external tracker (Linear/Jira/Asana) keyed off
+  `BLUEPRINT.geography`.
+- **Integration with GKS:** `BLUEPRINT--` declares the *shape* of the
+  work (file paths, acceptance criteria, architectural pattern);
+  `AUDIT--` records the *outcome* once the task closes. Both are
+  durable. Live status in between is the orchestrator's job — see
+  `docs/MSP_RELATIONSHIP.md` for the contract.
 
 ### `AUDIT--` · test results / quality report
 - **Use for:** sign-off documents recording verification outcomes.

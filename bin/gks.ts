@@ -842,6 +842,7 @@ async function cmdNewFeature(argv: string[]): Promise<void> {
       adr: { type: 'string' },
       'blueprint-file': { type: 'string', multiple: true },
       task: { type: 'string', multiple: true },
+      'task-tracker': { type: 'string' },
     },
   })
   const flags = readGlobals(values)
@@ -851,6 +852,11 @@ async function cmdNewFeature(argv: string[]): Promise<void> {
     process.exit(1)
   }
   const title = (values['title'] as string | undefined) ?? slug
+  const trackerInput = (values['task-tracker'] as string | undefined) ?? 'msp'
+  if (!['local', 'msp', 'external'].includes(trackerInput)) {
+    console.error(`gks new-feature: invalid --task-tracker '${trackerInput}' (expected local|msp|external)`)
+    process.exit(1)
+  }
   const store = await openStore(flags)
   const result = await scaffoldNewFeature(store.inbound, {
     slug,
@@ -859,14 +865,26 @@ async function cmdNewFeature(argv: string[]): Promise<void> {
     adrBody: values['adr'] as string | undefined,
     blueprintFiles: values['blueprint-file'] as string[] | undefined,
     tasks: values['task'] as string[] | undefined,
+    taskTracker: trackerInput as 'local' | 'msp' | 'external',
+    repoRoot: flags.root,
+    namespace: flags.namespace.tenant_id ?? 'default',
   })
   emit(flags, result, () => {
     console.log(`scaffolded ${result.proposed.length} candidate atom(s) in inbound queue:`)
     for (const p of result.proposed) {
       console.log(`  ${p.id.padEnd(36)}  ${p.path}`)
     }
+    if (result.tasksWritten?.length) {
+      console.log('')
+      console.log(`wrote ${result.tasksWritten.length} microtask file(s) (tracker=local, outside gks/):`)
+      for (const t of result.tasksWritten) console.log(`  ${t.slug.padEnd(28)}  ${t.path}`)
+    }
+    if (result.trackerGuidance?.length) {
+      console.log('')
+      for (const line of result.trackerGuidance) console.log(line)
+    }
     console.log('')
-    console.log('Review and promote with `gks inbound list` / `gks inbound promote`.')
+    console.log('Review and promote atoms with `gks inbound list` / `gks inbound promote`.')
   })
 }
 
@@ -959,7 +977,9 @@ Subcommands
   verify-flow ID                              walk crosslinks; exit-1 if any node not stable
   validate [--links]                          read-only crosslink integrity check
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
+                  [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue
+                                              microtasks (if any) go to the orchestrator (ADR-015)
 
 Global flags
   --root=PATH      repo root (default: cwd, or GKS_ROOT env)

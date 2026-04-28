@@ -18,7 +18,6 @@ ISSUE-- (light-governance tier per ADR-012).
 - [`FLOW.md`](./FLOW.md) — data / UI flow
 - [`ENTITY.md`](./ENTITY.md) — data schema
 - [`BLUEPRINT.yaml`](./BLUEPRINT.yaml) — implementation plan (YAML, not MD)
-- [`TASK.md`](./TASK.md) — microtask (leaf, ≤ 400-token prompt)
 - [`AUDIT.md`](./AUDIT.md) — verification report
 
 ### Agent governance

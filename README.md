@@ -240,8 +240,8 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 - [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — running real-scale evals
 - [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) — OTel setup + dashboards
 - [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) — schema versioning policy
-- [`docs/adr/`](./docs/adr/) — architecture decision records (14 entries)
-- [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 8 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, the extended taxonomy, and the doc-to-code enforcement model. Try it:
+- [`docs/adr/`](./docs/adr/) — architecture decision records (15 entries)
+- [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 9 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, the extended taxonomy, the doc-to-code enforcement model, and the task-tracking boundary (ADR-015). Try it:
   ```sh
   npx tsx bin/gks.ts lookup ADR--REVERSE-CITATION-LOOKUP --root=.
   npx tsx bin/gks.ts lookup-by-symbol src/memory/index.ts:lookupBySymbol --root=. --json

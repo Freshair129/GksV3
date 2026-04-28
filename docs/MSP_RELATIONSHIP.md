@@ -196,11 +196,72 @@ field is also exposed via the `gks_propose_inbound` MCP tool's
 For the MCP-config recipe that runs both servers side-by-side, see
 the README section [Pairing with a code-structure layer](../README.md#pairing-with-a-code-structure-layer-eg-gitnexus).
 
+## Task tracking — orchestrator territory (ADR-015)
+
+Live task / subtask / microtask state is **execution state**, not
+durable knowledge. It belongs to the orchestrator, not GKS.
+
+The boundary:
+
+| Concern | Layer | Atom / file |
+|---|---|---|
+| Why we plan to do X | GKS (durable) | `CONCEPT--` |
+| What we decided | GKS (durable) | `ADR--` |
+| What user-facing thing X does | GKS (durable) | `FEAT--` |
+| Plan for which files X touches | GKS (durable) | `BLUEPRINT--` (`geography`) |
+| Live task status (open/in-progress/done) | **MSP / orchestrator** | task tracker |
+| Per-microtask agent prompt | **MSP / orchestrator** | `T<n>_<slug>.task.yaml` |
+| Subtask decomposition | **MSP / orchestrator** | tracker tree |
+| Reviewer chatter / comments | **MSP / orchestrator** | tracker comments |
+| Verification outcome | GKS (durable) | `AUDIT--` |
+
+Atoms have **settling time** — they're meant to be cited unchanged a
+year later. Tasks churn hourly. Mixing the two would pollute the SSOT
+with hundreds of completed-task corpses inside six months.
+
+### Concrete handoff between layers
+
+```
+GKS                                    MSP / orchestrator
+─────                                  ──────────────────
+
+BLUEPRINT--FOO  ──── geography ────►   create tracker entries per file
+                     (file paths)      assign agents, run microtasks
+
+                                       (live status churns here —
+                                        not visible to GKS)
+
+                                       tracker entry closes
+                                       │
+                  ◄── propose_inbound ─┘
+AUDIT--FOO  ◄── promote                  with outcome + numbers
+   │
+   └─ crosslinks.references: [FEAT--FOO, BLUEPRINT--FOO]
+```
+
+### Where microtasks live (pick one)
+
+- **`.brain/<ns>/tasks/<slug>/T<n>_<name>.task.yaml`** — self-hosted,
+  no separate orchestrator. `gks new-feature --task-tracker=local`
+  drops skeletons here.
+- **`msp/projects/<id>/tasks/`** — a real MSP layer is in play. The
+  scaffolder emits guidance lines pointing at the MSP API; MSP owns
+  the actual writes.
+- **External tracker (Linear / Jira / Asana)** — `BLUEPRINT--` may
+  carry a tracker URL in its frontmatter `meta`. Tasks live in the
+  external system; GKS only sees them indirectly via `AUDIT--`.
+
+In every case GKS treats microtasks as **opaque** — it does not index
+them, walk them in `verify-flow`, or try to enforce their integrity.
+That's deliberate: the lifecycles are different, the storage shapes
+should be too.
+
 ## Read more
 
 - [`../SCOPE.md`](../SCOPE.md) — full in/out scope of GKS itself
 - [`./adr/008-gks-storage-engine-scope.md`](./adr/008-gks-storage-engine-scope.md) — vertical layering decision (GKS vs Memory OS)
 - [`./adr/009-msp-as-orchestrator.md`](./adr/009-msp-as-orchestrator.md) — horizontal layering decision (peer subsystems)
+- [`./adr/015-task-tracking-at-orchestrator.md`](./adr/015-task-tracking-at-orchestrator.md) — why TASK-- left the atomic taxonomy
 - [`../examples/memory-os-architecture/README.md`](../examples/memory-os-architecture/README.md)
   — reference Memory OS impl walkthrough
 - EVA project's `FRAMEWORK_MASTER_SPEC.md` (external) — full MSP spec

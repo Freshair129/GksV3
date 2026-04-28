@@ -119,9 +119,10 @@ custom agents) can use the memory fabric over stdio:
 }
 ```
 
-Six tools exposed: `gks_retain`, `gks_recall`, `gks_lookup`,
-`gks_propose_inbound`, `gks_reflect`, plus an admin
-`gks_recall_cross_namespace` (gated). See
+12 tools exposed: `gks_retain`, `gks_recall`, `gks_lookup`,
+`gks_propose_inbound`, `gks_reflect`, `gks_verify_flow`, `gks_validate_links`,
+`gks_new_feature`, `gks_hotfix_open`, `gks_hotfix_list`, `gks_hotfix_close`,
+plus an admin `gks_recall_cross_namespace` (gated). See
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#layer-dependency).
 
 ### Pairing with a code-structure layer (e.g. GitNexus)

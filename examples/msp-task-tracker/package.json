@@ -1,0 +1,14 @@
+{
+  "name": "gks-example-msp-task-tracker",
+  "version": "1.0.0",
+  "description": "Orchestrator-side task tracker stub (ADR-015)",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "gks": "file:../.."
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -25,12 +25,16 @@ import { z } from 'zod'
 import type { MemoryStore } from '../memory/index.js'
 import { recall, retain, reflect } from '../memory/api.js'
 import { ATOMIC_ID_PATTERN } from '../memory/atomic-id.js'
-import type { Namespace } from '../memory/types.js'
+import type { AtomicEntry, Namespace } from '../memory/types.js'
+import { verifyFlow } from '../memory/verify-flow.js'
+import { validateLinks } from '../memory/validate-links.js'
+import { scaffoldNewFeature } from '../scaffold/new-feature.js'
+import { HotfixStore } from '../hotfix/store.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('mcp-server')
 
-const SERVER_VERSION = '3.5.4'
+const SERVER_VERSION = '3.5.5'
 
 export interface GksMcpServerOptions {
   /** The store to expose. Caller owns its lifecycle. */
@@ -251,6 +255,137 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
         proposals: result.proposals,
         inbound_paths: result.inboundPaths,
       })
+    },
+  )
+
+  // gks_verify_flow
+  server.registerTool(
+    'gks_verify_flow',
+    {
+      description:
+        'Walk the crosslink chain (CONCEPT -> ADR -> BLUEPRINT) and assert every node is stable. Reports the first broken edge. See ADR-014.',
+      inputSchema: {
+        id: z.string().regex(ATOMIC_ID_PATTERN).describe('Start atom ID (e.g. FEAT--MY-FEATURE)'),
+      },
+    },
+    async (args) => {
+      const atomic = opts.store.atomic
+      await atomic.loadIndex()
+      const byId = new Map<string, AtomicEntry>()
+      for (const e of atomic.filter({})) byId.set(e.id, e)
+      const result = verifyFlow(args.id, byId)
+      return jsonReply(result)
+    },
+  )
+
+  // gks_validate_links
+  server.registerTool(
+    'gks_validate_links',
+    {
+      description:
+        'Read-only integrity check: verify that every crosslinks.* reference in the index resolves to an existing atom.',
+      inputSchema: z.object({}).strict(),
+    },
+    async () => {
+      const atomic = opts.store.atomic
+      await atomic.loadIndex()
+      const byId = new Map<string, AtomicEntry>()
+      for (const e of atomic.filter({})) byId.set(e.id, e)
+      const result = validateLinks(byId)
+      return jsonReply(result)
+    },
+  )
+
+  // gks_new_feature
+  server.registerTool(
+    'gks_new_feature',
+    {
+      description:
+        'Scaffold a new feature: drops CONCEPT, ADR, FEAT, and BLUEPRINT candidates into the inbound queue. See ADR-014/015.',
+      inputSchema: z
+        .object({
+          slug: z.string().describe('Dashed-uppercase slug (e.g. RATE-LIMIT)'),
+          title: z.string().describe('Human title'),
+          conceptBody: z.string().optional(),
+          adrBody: z.string().optional(),
+          blueprintFiles: z.array(z.string()).optional().describe('Paths this feature governs'),
+          tasks: z.array(z.string()).optional().describe('Microtask slugs'),
+          taskTracker: z.enum(['local', 'msp', 'external']).optional().default('msp'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const result = await scaffoldNewFeature(opts.store.inbound, {
+        ...args,
+        repoRoot: opts.store.root,
+        namespace: opts.defaultNamespace?.tenant_id ?? 'default',
+      })
+      return jsonReply(result)
+    },
+  )
+
+  // gks_hotfix_open
+  server.registerTool(
+    'gks_hotfix_open',
+    {
+      description:
+        'Open a hotfix escape hatch: allows commits to bypass ADR-014 gates for 48 hours while backfill atoms are written.',
+      inputSchema: z
+        .object({
+          commitSha: z.string().describe('Full commit SHA'),
+          title: z.string(),
+          files: z.array(z.string()).optional().describe('Files affected'),
+          reason: z.string().optional(),
+          ref: z.string().optional().describe('Branch/tag'),
+          relatedIncidents: z.array(z.string()).optional().describe('INC-- IDs'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const hotfixStore = new HotfixStore({ root: opts.store.root, audit: opts.store.audit })
+      const hotfix = await hotfixStore.open(args)
+      return jsonReply(hotfix)
+    },
+  )
+
+  // gks_hotfix_list
+  server.registerTool(
+    'gks_hotfix_list',
+    {
+      description: 'List hotfixes from the local escape-hatch store.',
+      inputSchema: z
+        .object({
+          overdue: z.boolean().optional().describe('Filter to hotfixes past 48h deadline'),
+          pending: z.boolean().optional().describe('Filter to hotfixes not yet closed'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const hotfixStore = new HotfixStore({ root: opts.store.root })
+      let list = args.overdue ? await hotfixStore.listOverdue() : await hotfixStore.list()
+      if (args.pending) {
+        list = list.filter((h) => !h.closed_at)
+      }
+      return jsonReply(list)
+    },
+  )
+
+  // gks_hotfix_close
+  server.registerTool(
+    'gks_hotfix_close',
+    {
+      description: 'Close a hotfix by declaring which stable atoms backfilled it.',
+      inputSchema: z
+        .object({
+          id: z.string().describe('HOTFIX--XXXXXXX ID'),
+          resolvedBy: z.array(z.string()).describe('IDs of CONCEPT/ADR/BLUEPRINT that resolved it'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const hotfixStore = new HotfixStore({ root: opts.store.root, audit: opts.store.audit })
+      const hotfix = await hotfixStore.close(args.id, args.resolvedBy)
+      return jsonReply(hotfix)
     },
   )
 

@@ -8,6 +8,7 @@ title: Doc-to-code enforcement model (master-spec §6 → GKS primitives)
 tags: [workflow, enforcement, agent-rule, hotfix, msp-gatekeeper]
 crosslinks:
   references: [ADR--EXTENDED-TAXONOMY, ADR--FLAT-ATOM-LAYOUT, ADR--REVERSE-CITATION-LOOKUP]
+  partially_superseded_by: [ADR--TASK-TRACKING-AT-ORCHESTRATOR]
 linked_symbols:
   - { file: "src/memory/types.ts", fn: normaliseStatus }
   - { file: "src/memory/types.ts", fn: isApprovedStatus }
@@ -40,11 +41,11 @@ primitives (no new storage semantics, ADR-008 boundary preserved):
 
 | Item | Surface |
 |---|---|
-| 1. `TASK--` prefix | `gks/task/` light-tier, must reference parent BLUEPRINT |
+| 1. ~~`TASK--` prefix~~ | **superseded by ADR--TASK-TRACKING-AT-ORCHESTRATOR (ADR-015)** — task state lives at the orchestrator, not as atoms |
 | 2. `status: approved` alias | `normaliseStatus` / `isApprovedStatus` map APPROVED→stable |
 | 3. Chain walker | `gks verify-flow <id>` — exits 1 on broken edge / not-stable node |
 | 4. Hotfix escape hatch | `HOTFIX--<sha>` atom + 48 h timer + `gks hotfix check` pre-commit gate |
-| 5. `gks new-feature` scaffolder | drops 4-5 candidates (CONCEPT/ADR/FEAT/BLUEPRINT/[TASK--]) into inbound |
+| 5. `gks new-feature` scaffolder | drops 4 candidates (CONCEPT/ADR/FEAT/BLUEPRINT) into inbound; microtasks via `--task-tracker=local\|msp\|external` |
 | 6. Link checker | `gks validate --links` — read-only crosslink integrity |
 
 ## Consequences

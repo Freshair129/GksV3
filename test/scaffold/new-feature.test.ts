@@ -1,9 +1,9 @@
 /**
- * new-feature scaffolder tests (ADR-014 item 5).
+ * new-feature scaffolder tests (ADR-014 item 5; tasks per ADR-015).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -71,14 +71,51 @@ describe('scaffoldNewFeature', () => {
     expect(text).toContain('"src/cache.ts"')
   })
 
-  it('appends TASK-- candidates when --task is passed', async () => {
+  it('does NOT add task atoms — microtasks live outside gks/ (ADR-015)', async () => {
     const result = await scaffoldNewFeature(inbound, {
       slug: 'q',
       title: 'Q',
       tasks: ['validate-input', 'error-mapper'],
+      taskTracker: 'msp',
     })
-    expect(result.proposed.map((p) => p.id)).toContain('TASK--Q-VALIDATE-INPUT')
-    expect(result.proposed.map((p) => p.id)).toContain('TASK--Q-ERROR-MAPPER')
+    expect(result.proposed).toHaveLength(4)
+    expect(result.proposed.every((p) => !p.id.startsWith('TASK--'))).toBe(true)
+    // tracker=msp emits guidance, no files
+    expect(result.trackerGuidance?.join('\n')).toContain('VALIDATE-INPUT')
+    expect(result.tasksWritten).toBeUndefined()
+  })
+
+  it('writes microtask YAML files outside gks/ when --task-tracker=local', async () => {
+    const result = await scaffoldNewFeature(inbound, {
+      slug: 'rate-limit',
+      title: 'rate limit',
+      tasks: ['token-bucket', 'middleware'],
+      taskTracker: 'local',
+      repoRoot: root,
+      namespace: 'default',
+      blueprintFiles: ['src/api/rl.ts'],
+    })
+    expect(result.tasksWritten).toHaveLength(2)
+    const taskDir = join(root, '.brain', 'default', 'tasks', 'rate-limit')
+    expect((await stat(taskDir)).isDirectory()).toBe(true)
+    const files = await readdir(taskDir)
+    expect(files).toEqual(['T1_token-bucket.task.yaml', 'T2_middleware.task.yaml'])
+    const text = await readFile(join(taskDir, files[0]!), 'utf8')
+    expect(text).toContain('parent_blueprint: BLUEPRINT--RATE-LIMIT')
+    expect(text).toContain('src/api/rl.ts')
+    // Confirm nothing landed in gks/
+    expect(files.some((f) => f.startsWith('TASK--'))).toBe(false)
+  })
+
+  it('emits guidance for --task-tracker=external without writing files', async () => {
+    const result = await scaffoldNewFeature(inbound, {
+      slug: 'q',
+      title: 'Q',
+      tasks: ['x'],
+      taskTracker: 'external',
+    })
+    expect(result.tasksWritten).toBeUndefined()
+    expect(result.trackerGuidance?.join('\n')).toMatch(/external tracker/i)
   })
 
   it('rejects an invalid slug', async () => {

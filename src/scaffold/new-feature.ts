@@ -1,5 +1,5 @@
 /**
- * `gks new-feature` scaffolder (ADR-014 item 5).
+ * `gks new-feature` scaffolder (ADR-014 item 5; task handling per ADR-015).
  *
  * One command, four atom candidates dropped into the inbound queue:
  *
@@ -8,17 +8,25 @@
  *   FEAT--<NAME>         the feature wiring         (P2)
  *   BLUEPRINT--<NAME>    geography pre-filled        (P3)
  *
- * Tasks (P4) are NOT scaffolded by default — they're shaped by the
- * blueprint and shouldn't be guessed. Pass `--task <slug>` (repeated)
- * to drop empty TASK-- candidates that reference the new blueprint.
+ * Microtasks (P4) are NOT atoms (ADR-015) — they are execution state
+ * owned by the orchestrator. When `--task-tracker=local` is passed and
+ * `--task=<slug>` entries are supplied, this scaffolder writes
+ * `T<n>_<slug>.task.yaml` skeletons into `<root>/.brain/<ns>/tasks/<slug>/`
+ * (outside `gks/`). Other tracker modes (`msp`, `external`) emit guidance
+ * lines and leave tracker integration to the orchestrator.
  *
- * The scaffolder writes through `InboundQueue.propose()` — same path
- * an agent's `proposeInbound()` call takes — so reviewers see the
- * candidates the same way.
+ * The four atom candidates flow through `InboundQueue.propose()` — the
+ * same path an agent's `proposeInbound()` call takes — so reviewers see
+ * them the same way.
  */
+
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import type { InboundArtifact, LinkedSymbol } from '../memory/types.js'
 import type { InboundQueue } from '../memory/inbound.js'
+
+export type TaskTracker = 'local' | 'msp' | 'external'
 
 export interface NewFeatureArgs {
   /** Slug used in every atom id, uppercased + dashed (e.g. RATE-LIMIT). */
@@ -31,12 +39,23 @@ export interface NewFeatureArgs {
   adrBody?: string
   /** File paths the BLUEPRINT will govern. Becomes geography + linked_symbols. */
   blueprintFiles?: string[]
-  /** Optional task slugs (e.g. ["VALIDATE-INPUT", "ERROR-MAPPER"]). */
+  /** Optional task slugs. With `--task-tracker=local`, dropped as
+   *  `T<n>_<slug>.task.yaml` skeletons in `.brain/<ns>/tasks/<slug>/`. */
   tasks?: string[]
+  /** Where live task state lives. Default 'msp' (no files written). */
+  taskTracker?: TaskTracker
+  /** Repo root (used by tracker=local to find the task directory). */
+  repoRoot?: string
+  /** Namespace under .brain/<ns>/. Defaults to 'default'. */
+  namespace?: string
 }
 
 export interface ScaffoldResult {
   proposed: Array<{ id: string; path: string; reviewId: string }>
+  /** Task-tracker side-effects (only when tracker=local). */
+  tasksWritten?: Array<{ slug: string; path: string }>
+  /** Free-form guidance for trackers that GKS doesn't write (msp/external). */
+  trackerGuidance?: string[]
 }
 
 const TEMPLATE = {
@@ -50,24 +69,49 @@ const TEMPLATE = {
     const geography = files.map((f) => `  - ${JSON.stringify(f)}`).join('\n')
     return `# BLUEPRINT — ${title}\n\n\`\`\`yaml\nmetadata:\n  title: "${title}"\narchitectural_pattern: <pattern>\ndata_logic: <data flow>\ngeography:\n${geography || '  - <file path>'}\napi_contracts: []\nverification_plan: []\n\`\`\`\n`
   },
-  task: (title: string, parent: string) =>
-    `# TASK — ${title}\n\n## Spec\n\n<one concern, ≤ 400 tokens>\n\n## Acceptance criteria\n\n- [ ] criterion 1\n- [ ] criterion 2 (≥ 2 required)\n\n## Geography\n\nFiles allowed (must be a subset of \`${parent}\`'s geography).\n`,
+  microtaskYaml: (slug: string, parent: string, blueprintFiles: string[]) => {
+    const geography = blueprintFiles.length > 0
+      ? blueprintFiles.map((f) => `  - ${JSON.stringify(f)}`).join('\n')
+      : '  # subset of parent BLUEPRINT geography'
+    return [
+      `# Microtask (execution state — owned by orchestrator per ADR-015)`,
+      `# Lives outside gks/. Update freely; close it when the code merges.`,
+      ``,
+      `id: ${slug}`,
+      `parent_blueprint: ${parent}`,
+      `status: open                  # open | in_progress | blocked | done`,
+      `assignee:                     # MSP-AGT-... or MSP-USR-...`,
+      `created_at: ${new Date().toISOString()}`,
+      `prompt: |`,
+      `  <≤ 400-token instruction for the agent>`,
+      `acceptance:`,
+      `  - <falsifiable criterion 1>`,
+      `  - <falsifiable criterion 2 (≥ 2 required)>`,
+      `geography:`,
+      geography,
+      ``,
+    ].join('\n')
+  },
 }
 
-/** Shared linked_symbols built from --blueprint-files. */
 function fileSymbols(files: string[] | undefined): LinkedSymbol[] | undefined {
   if (!files || files.length === 0) return undefined
   return files.map((file) => ({ file }))
+}
+
+function validateSlug(slug: string, label: string): string {
+  const upper = slug.toUpperCase()
+  if (!/^[A-Z0-9][A-Z0-9_-]*$/.test(upper)) {
+    throw new Error(`new-feature: invalid ${label} '${slug}' (must match [A-Z0-9][A-Z0-9_-]*)`)
+  }
+  return upper
 }
 
 export async function scaffoldNewFeature(
   inbound: InboundQueue,
   args: NewFeatureArgs,
 ): Promise<ScaffoldResult> {
-  const slug = args.slug.toUpperCase()
-  if (!/^[A-Z0-9][A-Z0-9_-]*$/.test(slug)) {
-    throw new Error(`new-feature: invalid slug '${args.slug}' (must match [A-Z0-9][A-Z0-9_-]*)`)
-  }
+  const slug = validateSlug(args.slug, 'slug')
   const conceptId = `CONCEPT--${slug}`
   const adrId = `ADR--${slug}`
   const featId = `FEAT--${slug}`
@@ -107,24 +151,49 @@ export async function scaffoldNewFeature(
     },
   ]
 
-  for (const taskSlug of args.tasks ?? []) {
-    const ts = taskSlug.toUpperCase()
-    if (!/^[A-Z0-9][A-Z0-9_-]*$/.test(ts)) {
-      throw new Error(`new-feature: invalid task slug '${taskSlug}'`)
-    }
-    artifacts.push({
-      proposed_id: `TASK--${slug}-${ts}`,
-      phase: 4,
-      type: 'task',
-      title: `${args.title} — ${ts.toLowerCase()}`,
-      body: TEMPLATE.task(`${args.title} — ${ts.toLowerCase()}`, blueprintId),
-    })
-  }
-
   const proposed: ScaffoldResult['proposed'] = []
   for (const a of artifacts) {
     const receipt = await inbound.propose(a)
     proposed.push({ id: a.proposed_id, path: receipt.path, reviewId: receipt.reviewId })
   }
-  return { proposed }
+
+  const result: ScaffoldResult = { proposed }
+  const tasks = args.tasks ?? []
+  if (tasks.length === 0) return result
+
+  // Validate task slugs even when not writing files — fail fast.
+  const taskSlugs = tasks.map((t) => validateSlug(t, 'task slug'))
+  const tracker: TaskTracker = args.taskTracker ?? 'msp'
+
+  if (tracker === 'local') {
+    const root = args.repoRoot ?? process.cwd()
+    const ns = args.namespace ?? 'default'
+    const taskDir = join(root, '.brain', ns, 'tasks', slug.toLowerCase())
+    await mkdir(taskDir, { recursive: true })
+    const written: NonNullable<ScaffoldResult['tasksWritten']> = []
+    let n = 1
+    for (const ts of taskSlugs) {
+      const filename = `T${n}_${ts.toLowerCase()}.task.yaml`
+      const path = join(taskDir, filename)
+      const yaml = TEMPLATE.microtaskYaml(ts, blueprintId, args.blueprintFiles ?? [])
+      await writeFile(path, yaml, 'utf8')
+      written.push({ slug: ts, path })
+      n++
+    }
+    result.tasksWritten = written
+  } else if (tracker === 'msp') {
+    result.trackerGuidance = [
+      `Microtasks not written: tracker=msp.`,
+      `Hand off to the orchestrator (e.g. MSP) — pass each slug into its task API:`,
+      ...taskSlugs.map((ts) => `  - ${ts}  (parent: ${blueprintId})`),
+    ]
+  } else {
+    result.trackerGuidance = [
+      `Microtasks not written: tracker=external.`,
+      `Create them in the external tracker (Linear / Jira / Asana) and reference ${blueprintId} from each:`,
+      ...taskSlugs.map((ts) => `  - ${ts}  (parent: ${blueprintId})`),
+    ]
+  }
+
+  return result
 }

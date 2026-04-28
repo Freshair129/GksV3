@@ -904,8 +904,10 @@ gks status
 gks new-feature rate-limit --title="Per-tenant rate limit" \
     --concept="Why" --adr="What we picked" \
     --blueprint-file=src/api/rl.ts --blueprint-file=src/db/quota.ts \
-    --task=validate-input --task=error-mapper
-                                          # drops 4-5 candidates into inbound queue
+    --task=validate-input --task=error-mapper --task-tracker=local
+                                          # drops 4 atoms into inbound;
+                                          # microtasks (--task-tracker=local) go to .brain/<ns>/tasks/
+                                          # (msp/external trackers print guidance instead — ADR-015)
 gks verify-flow FEAT--RATE-LIMIT          # walk crosslinks; exit-1 on broken chain
 gks validate --links                      # crosslink integrity over all atoms
 gks hotfix open <full-sha> --title="prod down" --file=src/api/rl.ts
@@ -1390,6 +1392,7 @@ so every published tarball has both passing tests and a clean dist.
 | 012 | Extended atomic taxonomy + ISSUE-- as self-hosted tracker |
 | 013 | Atom folders by type, not by phase |
 | 014 | Doc-to-code enforcement model (master-spec §6 → GKS primitives) |
+| 015 | Task tracking belongs to the orchestrator, not GKS |
 
 ---
 

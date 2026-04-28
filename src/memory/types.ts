@@ -46,7 +46,6 @@ export type AtomicType =
   | 'rule'
   | 'fact'
   | 'insight'
-  | 'task'
   | 'hotfix'
   | string
 

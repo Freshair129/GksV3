@@ -23,7 +23,7 @@ P1 CONCEPT  →  P2 ADR/ENTITY/API  →  P3 BLUEPRINT  →  P4 TASK  →  P5 src
 | P1    | `CONCEPT--`   | strict | `gks/concept/` after promote |
 | P2    | `ADR--` · `ENTITY--` · `API--` · `FEAT--` | strict | `gks/{adr,entity,api,feat}/` |
 | P3    | `BLUEPRINT--` | strict | `gks/blueprint/` (YAML) |
-| P4    | `TASK--`      | light  | `gks/task/` direct write OK |
+| P4    | *(not an atom — see ADR-015)* | tracker | live task state lives at the orchestrator, not in `gks/` |
 | P5    | (none — code) | —      | `src/` with `linked_symbols` citing back |
 | P6    | `AUDIT--`     | strict | `gks/audit/` |
 
@@ -59,22 +59,26 @@ gks new-feature rate-limit \
   --blueprint-file=src/api/rate-limit.ts \
   --blueprint-file=src/db/quota.ts \
   --task=token-bucket \
-  --task=middleware-wiring
+  --task=middleware-wiring \
+  --task-tracker=local
 ```
 
-Drops 6 candidate files into the inbound queue:
+Drops 4 atom candidates into the inbound queue:
 
 ```
 CONCEPT--RATE-LIMIT
 ADR--RATE-LIMIT
 FEAT--RATE-LIMIT
 BLUEPRINT--RATE-LIMIT          (geography pre-filled with the two files)
-TASK--RATE-LIMIT-TOKEN-BUCKET
-TASK--RATE-LIMIT-MIDDLEWARE-WIRING
 ```
 
-The bodies are template skeletons — fill in the specifics before
-review. Tasks are optional; omit `--task=…` and they don't get scaffolded.
+Microtasks (`--task=…`) are **not** atoms (ADR-015) — they are
+execution state owned by the orchestrator. With
+`--task-tracker=local`, skeleton YAML files land in
+`.brain/<ns>/tasks/rate-limit/T1_token-bucket.task.yaml` etc., outside
+`gks/`. With `--task-tracker=msp` (default) or `external`, the
+scaffolder prints guidance lines for the orchestrator / external
+tracker to consume and writes nothing.
 
 ### 2. Review + promote
 
@@ -88,14 +92,11 @@ gks inbound promote FEAT--RATE-LIMIT
 gks inbound promote BLUEPRINT--RATE-LIMIT
 ```
 
-Tasks are light-tier — they can be promoted in bulk or written direct
-(but `gks new-feature` puts them through inbound for consistency):
-
-```sh
-gks inbound bulk-promote --type=task
-```
-
 After every promote, the re-indexer rebuilds `gks/00_index/atomic_index.jsonl`.
+
+Live task state — including microtasks (`T*.task.yaml`) — does not
+flow through inbound; it lives at the orchestrator (ADR-015,
+[`MSP_RELATIONSHIP.md` § task tracking](./MSP_RELATIONSHIP.md#task-tracking--orchestrator-territory-adr-015)).
 
 ### 3. Verify the chain before writing code
 
@@ -317,17 +318,17 @@ gks status                      # store stats
 ## Where atoms live
 
 ```
-gks/                       canonical atom tree (committed)
+gks/                       canonical atom tree (committed — durable knowledge)
 ├── 00_index/atomic_index.jsonl   ← regenerate with msp:reindex
 ├── concept/  adr/  feat/  entity/ api/         (P1–P2 strict)
 ├── blueprint/                                  (P3 strict, YAML)
-├── task/                                       (P4 light)
 ├── audit/                                      (P6 strict)
 ├── hotfix/                                     (escape hatch, light)
 └── issues/                                     (live tracker, light)
 
 .brain/<ns>/inbound/       proposed atoms awaiting review (NEVER committed)
 .brain/<ns>/audit/         append-only operation log (NEVER committed)
+.brain/<ns>/tasks/         microtask YAML when --task-tracker=local (ADR-015)
 ```
 
 `<ns>` is the namespace from `gks.config.json` — usually `default`.

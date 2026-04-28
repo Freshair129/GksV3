@@ -4,6 +4,160 @@ All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.5] — 2026-04-28
+
+The master-spec doc-to-code release. Folds three architectural decisions
+(ADR-013, ADR-014, ADR-015) and the tooling that lets agents and
+contributors actually live by them: chain-walking gates, a hotfix
+escape hatch, an end-to-end scaffolder, six new MCP tools, the missing
+inbound `promote` primitive, a self-hosted CI workflow, and a working
+orchestrator-side task-tracker example.
+
+### Architectural decisions
+
+- **ADR-013** — flat atom layout. `gks/<type>/` replaces
+  `gks/phase{1,2,3}_*/<type>/`. Atoms shifting phase no longer move
+  files; the in-memory `AtomicLayer.filter({ phase })` still works.
+- **ADR-014** — doc-to-code enforcement model. Maps master-spec §6
+  (P1–P6 phases, Agent Rule §6.3, Hotfix Escape Hatch §6.4, CLI
+  surface §6.5, MSP Gatekeeper §7) onto GKS primitives. Six items, all
+  storage-engine scope per ADR-008.
+- **ADR-015** — task tracking belongs to the orchestrator, not GKS.
+  Supersedes ADR-014 item 1: removes `TASK--` from the atomic
+  taxonomy. Live task / subtask / microtask state lives in MSP / a
+  tracker / `.brain/<ns>/tasks/`, not in `gks/`. Atoms keep
+  `BLUEPRINT--` (work shape) and `AUDIT--` (outcome); execution state
+  in between is the orchestrator's job.
+
+### Added — gates + scaffolders
+
+- **`gks verify-flow <id>`** — chain walker (ADR-014 item 3). Walks
+  `crosslinks.references / implements / parent_blueprint / resolves`
+  from a root atom; reports missing atoms, `not_approved` status, and
+  broken crosslinks. Cycle-safe; surfaces every issue, not just the
+  first. Exit-1 composes into pre-commit / CI.
+- **`gks validate --links`** — read-only crosslink integrity check
+  across every key in the index (ADR-014 item 6).
+- **`gks new-feature <slug>`** — scaffolder (ADR-014 item 5). One
+  command drops 4 candidates (CONCEPT / ADR / FEAT / BLUEPRINT) into
+  the inbound queue with `geography` + `linked_symbols` pre-filled
+  from `--blueprint-file=`. Microtasks per ADR-015 are NOT atoms;
+  `--task-tracker=local|msp|external` picks the orchestrator-side
+  destination (`local` writes `T<n>_*.task.yaml` skeletons under
+  `.brain/<ns>/tasks/`; the others print handoff guidance).
+- **`gks hotfix open|list|close|check`** (ADR-014 item 4). Opens a
+  `HOTFIX--<short-sha>` atom with `valid_to = now + 48 h`; the
+  pre-commit gate (`examples/drift-detection/hotfix-gate.sh`) lets
+  staged files through during the window and blocks afterwards until
+  backfill atoms reference the hotfix via `crosslinks.resolves`.
+- **Status alias** (ADR-014 item 2). `normaliseStatus()` and
+  `isApprovedStatus()` accept master-spec wording (`APPROVED`,
+  `Accepted`) at the boundary and map it to the canonical `stable`
+  enum value — no SSOT split between two words for the same notion.
+
+### Added — inbound queue review surface
+
+- **`gks inbound list [--type=…]`**, **`gks inbound show ID`**,
+  **`gks inbound promote ID [--force] [--status=…]`**.
+  `InboundQueue.promote()` moves `<inbound>/<id>.<rev>.md` to
+  `<gks>/<type>/<id>.md`, strips review-only frontmatter (`review_id`,
+  `proposed_at`, `source_session`, `confidence`, tenant/user/session/
+  agent ids), renames `proposed_id → id`, sets `status: stable`, and
+  drops the auto-prepended title H1 so the canonical body keeps a
+  single descriptive heading. Refuses to overwrite an existing dest
+  without `--force`. The docs (WORKFLOW.md, ONBOARDING.md) had been
+  documenting this flow for two releases without it actually existing.
+
+### Added — MCP tools (13 total, was 7)
+
+Six new stdio tools so agents using GKS over MCP can satisfy the Agent
+Rule §6.3 without shelling out:
+
+- `gks_verify_flow` — wraps `verifyFlow`
+- `gks_validate_links` — wraps `validateLinks`
+- `gks_new_feature` — wraps `scaffoldNewFeature`
+- `gks_hotfix_open` / `gks_hotfix_list` / `gks_hotfix_close` — wrap
+  `HotfixStore` open / list / close
+
+Zod-strict input schemas, JSON-encoded `text` content blocks. SERVER
+version bumped to 3.5.5 (was 3.5.4); README MCP tool count updated.
+
+### Added — atoms recognised in the taxonomy
+
+- `HOTFIX--` (light tier) — escape-hatch atom with required `valid_to`
+  + `meta.commit_sha`. `gks/hotfix/`. Closed by backfill atoms via
+  `crosslinks.resolves`.
+
+Removed (no production users — ADR-015):
+
+- `TASK--` prefix dropped from `AtomicType` union and the recognised
+  taxonomy. The `crosslinks.parent_blueprint` graph edge stays — it's
+  a generic key any future durable child atom may use, and
+  `verify-flow` keeps walking it.
+
+### Added — examples
+
+- **`examples/full-flow/run-feature.sh`** — guided end-to-end runner
+  composing `recall → new-feature → inbound promote → verify-flow`.
+  Pauses for `$EDITOR` review by default; `--auto-promote` for
+  headless / CI use.
+- **`examples/msp-task-tracker/`** — orchestrator-side reference
+  implementation per ADR-015. `tracker.openProjectFromBlueprint(…)`
+  reads `BLUEPRINT.geography` and creates open tasks in
+  `.brain/<ns>/tasks/<slug>/state.json`; on `closeProject(…)` it
+  builds an `AUDIT--` candidate and pipes it back through
+  `MemoryStore.inbound.propose`. End-to-end smoke test green.
+- **`examples/drift-detection/hotfix-gate.sh`** — pre-commit hook for
+  the 48-hour backfill window.
+- **`examples/atom-templates/`** — `HOTFIX.md` added; `TASK.md`
+  removed; existing templates annotated with crosslink-type semantics
+  (Backlink / Peer Link / Resolution Link / Context Link).
+
+### Added — CI + contributor docs
+
+- **`.github/workflows/gks-gates.yml`** — self-hosted gate. Runs
+  `npm run msp:index` and asserts zero diff against the committed
+  `atomic_index.jsonl`, then `gks validate --links`, then
+  `gks verify-flow` over every `gks/feat/FEAT--*.md`. Triggers on PR
+  to main and push to main.
+- **`CONTRIBUTING.md`** — local-enforcement section pointing at the
+  example pre-push and pre-commit hooks; corrected hotfix CLI usage.
+- **`docs/ONBOARDING.md`** — incremental seven-phase adoption guide
+  for existing projects, with a full-migration playbook for the cases
+  where it's actually warranted (compliance, EOL doc system, handoff,
+  < 50 pages, doc rewrite).
+- **`docs/WORKFLOW.md`** — daily P1 → P6 loop with every CLI command
+  at the right step, the hotfix sub-flow, the Agent Rule reduction to
+  a single `verify-flow` call, status transitions, and the three-hook
+  CI stack.
+- **`docs/MSP_RELATIONSHIP.md`** — new "Task tracking — orchestrator
+  territory (ADR-015)" section with the contract table and three
+  concrete tracker homes.
+
+### Bootstrap (eat-our-own-dog-food)
+
+- `gks/` tree grew from 7 to 9 atoms: added
+  `ADR--DOC-TO-CODE-ENFORCEMENT` and
+  `ADR--TASK-TRACKING-AT-ORCHESTRATOR` mirrors. `verify-flow` and
+  `validate --links` both pass against the live index.
+
+### Tests
+
+- 321 passing (was 278 in 3.5.4) across 43 test files; 3 still opt-in.
+  +43 new tests covering MCP gates, hotfix store, status alias,
+  verify-flow, validate-links, scaffolder + tracker modes, inbound
+  promote, msp-task-tracker example.
+
+### Notes
+
+- `AtomicEntry.phase` enum is unchanged (0–5). Master-spec §6.2
+  references P6; the schema cap of 5 stands — `AUDIT--` atoms use
+  `phase: 5` per the existing convention.
+- The MCP server still ships stdio only (ADR-007). `gks_recall_cross_namespace`
+  remains gated behind `exposeCrossNamespace`.
+
+[3.5.5]: https://github.com/freshair129/gksv3/releases/tag/v3.5.5
+
 ## [3.5.4] — 2026-04-26
 
 Closes the implementation half of [ADR-012](./docs/adr/012-extended-taxonomy.md):

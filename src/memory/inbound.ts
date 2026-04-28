@@ -15,9 +15,10 @@
  * before relaxing any of these constraints.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { parse as parseYaml } from 'yaml'
 import type { InboundArtifact, InboundReceipt, Phase } from './types.js'
 import { isAtomicId } from './atomic-id.js'
 import { yamlLite } from '../lib/yaml-lite.js'
@@ -72,6 +73,174 @@ export class InboundQueue {
   async read(path: string): Promise<string> {
     return readFile(path, 'utf8')
   }
+
+  /**
+   * List candidates currently waiting for review. Returns one entry per
+   * inbound file with the parsed frontmatter — so callers can render a
+   * dashboard or filter by type/age without re-parsing.
+   */
+  async list(): Promise<InboundCandidate[]> {
+    let names: string[] = []
+    try {
+      names = await readdir(this.inboundDir)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw err
+    }
+    const out: InboundCandidate[] = []
+    for (const name of names) {
+      if (!name.endsWith('.md')) continue
+      const path = join(this.inboundDir, name)
+      const text = await readFile(path, 'utf8')
+      const parsed = parseInboundFile(text)
+      if (!parsed) continue
+      out.push({
+        path,
+        proposed_id: parsed.fm['proposed_id'] as string,
+        review_id: parsed.fm['review_id'] as string,
+        type: parsed.fm['type'] as string,
+        phase: parsed.fm['phase'] as Phase,
+        proposed_at: parsed.fm['proposed_at'] as string | undefined,
+      })
+    }
+    return out.sort((a, b) => (a.proposed_at ?? '').localeCompare(b.proposed_at ?? ''))
+  }
+
+  /**
+   * Read a single candidate by `proposed_id`. Returns the raw file text
+   * (frontmatter + body). Throws if multiple files share the id (caller
+   * is expected to delete duplicates or rename them).
+   */
+  async readById(proposedId: string): Promise<{ path: string; text: string } | null> {
+    const candidates = await this.list()
+    const matches = candidates.filter((c) => c.proposed_id === proposedId)
+    if (matches.length === 0) return null
+    if (matches.length > 1) {
+      throw new Error(
+        `InboundQueue: ${matches.length} candidates share proposed_id '${proposedId}'. ` +
+          `Resolve manually before promoting.`,
+      )
+    }
+    return { path: matches[0]!.path, text: await readFile(matches[0]!.path, 'utf8') }
+  }
+
+  /**
+   * Promote a candidate from inbound to its canonical home in
+   * `gks/<type>/<id>.md`. Strips review-only frontmatter
+   * (`review_id`, `proposed_at`, `source_session`, `confidence`,
+   * tenant/user/session/agent ids) and renames `proposed_id → id`. Sets
+   * `status: 'stable'` unless the caller supplies an override. Body is
+   * preserved verbatim. Re-indexing is the caller's job.
+   *
+   * Idempotency: if `gks/<type>/<id>.md` already exists, refuses unless
+   * `force: true`.
+   */
+  async promote(
+    proposedId: string,
+    opts: PromoteOptions = {},
+  ): Promise<PromoteResult> {
+    if (!this.gksRoot) {
+      throw new Error('InboundQueue: cannot promote without a gksRoot configured')
+    }
+    const found = await this.readById(proposedId)
+    if (!found) throw new Error(`InboundQueue: no inbound candidate '${proposedId}'`)
+    const parsed = parseInboundFile(found.text)
+    if (!parsed) throw new Error(`InboundQueue: cannot parse inbound file ${found.path}`)
+
+    const fm = parsed.fm
+    const type = fm['type'] as string | undefined
+    if (!type) throw new Error(`InboundQueue: candidate ${proposedId} missing 'type'`)
+
+    const dest = join(this.gksRoot, type, `${proposedId}.md`)
+    try {
+      await readFile(dest)
+      if (!opts.force) {
+        throw new Error(
+          `InboundQueue: ${dest} already exists. Pass --force to overwrite.`,
+        )
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+
+    const titleFromBody = parsed.body.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim()
+
+    const promoted: Record<string, unknown> = {
+      id: proposedId,
+      phase: fm['phase'],
+      type,
+      status: opts.status ?? 'stable',
+      vault_id: opts.vaultId ?? 'default',
+    }
+    if (fm['title']) promoted['title'] = fm['title']
+    else if (titleFromBody) promoted['title'] = titleFromBody
+    for (const k of ['tags', 'crosslinks', 'linked_symbols', 'geography', 'created_at']) {
+      if (fm[k] !== undefined) promoted[k] = fm[k]
+    }
+    if (!promoted['created_at']) promoted['created_at'] = new Date().toISOString()
+
+    const out = `---\n${yamlLite(promoted)}---\n\n${parsed.body.trim()}\n`
+    await mkdir(dirname(dest), { recursive: true })
+    await writeFile(dest, out, 'utf8')
+    await rm(found.path)
+
+    log.info('inbound candidate promoted', { proposed_id: proposedId, dest })
+    return { id: proposedId, source: found.path, dest }
+  }
+}
+
+export interface InboundCandidate {
+  path: string
+  proposed_id: string
+  review_id: string
+  type: string
+  phase: Phase
+  proposed_at?: string
+}
+
+export interface PromoteOptions {
+  /** Default 'stable'; override if reviewer wants to land as draft. */
+  status?: string
+  /** Default 'default'. */
+  vaultId?: string
+  /** Allow overwriting an existing gks/<type>/<id>.md. Default false. */
+  force?: boolean
+}
+
+export interface PromoteResult {
+  id: string
+  source: string
+  dest: string
+}
+
+function parseInboundFile(text: string): { fm: Record<string, unknown>; body: string } | null {
+  if (!text.startsWith('---')) return null
+  const end = text.indexOf('\n---', 3)
+  if (end === -1) return null
+  const fmText = text.slice(3, end).trim()
+  let fm: unknown
+  try {
+    fm = parseYaml(fmText)
+  } catch {
+    return null
+  }
+  if (!fm || typeof fm !== 'object' || Array.isArray(fm)) return null
+  let bodyStart = end + 4
+  while (text[bodyStart] === '\n') bodyStart++
+  let body = text.slice(bodyStart)
+  // Strip the auto-appended "## Proposal Rationale" trailer added by propose().
+  const idx = body.search(/\n## Proposal Rationale\b/)
+  if (idx !== -1) body = body.slice(0, idx).trimEnd()
+  // propose() prepends "# {title}\n\n" to the body. When the body already
+  // contains its own H1 (scaffolder templates always do), promotion ends
+  // up with two consecutive H1s. Drop the auto-prepended one so the
+  // canonical atom keeps a single descriptive heading.
+  const firstH1 = body.match(/^#\s+.+?\s*\n/)
+  if (firstH1) {
+    const remainder = body.slice(firstH1[0].length).trimStart()
+    if (/^#\s+/.test(remainder)) body = remainder
+  }
+  return { fm: fm as Record<string, unknown>, body }
 }
 
 function renderArtifactMarkdown(a: InboundArtifact, reviewId: string): string {

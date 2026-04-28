@@ -273,7 +273,7 @@ Sample CI step (any platform):
 ```yaml
 - name: GKS chain integrity
   run: |
-    npm run msp:reindex
+    npm run msp:index
     npx gks validate --links
     for feat in $(ls gks/feat/FEAT--*.md | xargs -I {} basename {} .md); do
       npx gks verify-flow "$feat"
@@ -309,7 +309,7 @@ gks hotfix open <SHA> --title="..." --file=...
 gks hotfix close HOTFIX--XXX --resolved-by=<ID>
 
 # Maintain
-npm run msp:reindex             # rebuild atomic_index.jsonl
+npm run msp:index             # rebuild atomic_index.jsonl
 gks status                      # store stats
 ```
 
@@ -319,7 +319,7 @@ gks status                      # store stats
 
 ```
 gks/                       canonical atom tree (committed — durable knowledge)
-├── 00_index/atomic_index.jsonl   ← regenerate with msp:reindex
+├── 00_index/atomic_index.jsonl   ← regenerate with msp:index
 ├── concept/  adr/  feat/  entity/ api/         (P1–P2 strict)
 ├── blueprint/                                  (P3 strict, YAML)
 ├── audit/                                      (P6 strict)

@@ -25,7 +25,7 @@ jobs:
 
       - name: Reindex & Check Drift
         run: |
-          npm run msp:reindex
+          npm run msp:index
           git diff --exit-code -- gks/00_index/atomic_index.jsonl
         # Fails if reindexing produces a diff (index must be canonical)
 

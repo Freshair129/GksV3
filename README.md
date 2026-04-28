@@ -230,6 +230,8 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 ## Documentation
 
 - [`SCOPE.md`](./SCOPE.md) — **what GKS is and isn't** (read first if proposing features)
+- [`docs/ONBOARDING.md`](./docs/ONBOARDING.md) — **adopting GKS in an existing project** (incremental, 7 phases)
+- [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) — **daily doc-to-code loop** (P1→P6 + hotfix + Agent Rule, with every CLI command at the right step)
 - [`docs/TECHNICAL-OVERVIEW.md`](./docs/TECHNICAL-OVERVIEW.md) — **standalone technical reference** (architecture, API, layers, backends, MCP, CLI, all cross-cutting concerns)
 - [`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md) — why GKS is paired with MSP-shaped Memory OS layers + the contract between them
 - [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md) — canonical reference for all 30+ atomic prefixes (ADR / FEAT / SKILL / GUARDRAIL / FR / NFR / INC / ISSUE / …)
@@ -238,11 +240,13 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 - [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — running real-scale evals
 - [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) — OTel setup + dashboards
 - [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) — schema versioning policy
-- [`docs/adr/`](./docs/adr/) — architecture decision records (13 entries)
-- [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 7 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, and the extended taxonomy. Try it:
+- [`docs/adr/`](./docs/adr/) — architecture decision records (14 entries)
+- [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 8 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, the extended taxonomy, and the doc-to-code enforcement model. Try it:
   ```sh
   npx tsx bin/gks.ts lookup ADR--REVERSE-CITATION-LOOKUP --root=.
   npx tsx bin/gks.ts lookup-by-symbol src/memory/index.ts:lookupBySymbol --root=. --json
+  npx tsx bin/gks.ts verify-flow ADR--DOC-TO-CODE-ENFORCEMENT --root=.
+  npx tsx bin/gks.ts validate --links --root=.
   ```
 
 ### Reference architectures

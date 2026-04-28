@@ -29,6 +29,7 @@ import { parse as parseYaml } from 'yaml'
 
 import { gksLayout } from '../../src/memory/index.js'
 import { isAtomicId } from '../../src/memory/atomic-id.js'
+import { normaliseStatus } from '../../src/memory/types.js'
 
 interface IndexRow {
   id: string
@@ -116,7 +117,7 @@ function rowFromFrontmatter(
   const type = asString(fm['type'])
   if (!type) return { row: null, reason: 'missing type' }
 
-  const status = asString(fm['status']) ?? 'draft'
+  const status = normaliseStatus(asString(fm['status'])) ?? 'draft'
   const vault_id = asString(fm['vault_id']) ?? 'default'
 
   const row: IndexRow = { id, phase, type, status, vault_id, path: pathRel }

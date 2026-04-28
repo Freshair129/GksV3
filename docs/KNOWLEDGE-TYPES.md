@@ -26,8 +26,9 @@ the answer is here. Templates for each prefix live in
 | `PARAMS--` | Implementation | Constants / business config |
 | `FRAME--` | Implementation | Code standards / framework rules |
 | `BLUEPRINT--` | Implementation | YAML implementation plan |
-| `T*` | Implementation | Microtask (different format) |
+| `TASK--` | Implementation | Microtask (leaf node — must reference parent BLUEPRINT) |
 | `AUDIT--` | Implementation | Test results / quality report |
+| `HOTFIX--` | Ops | Hotfix escape-hatch atom (48h backfill window — ADR-014) |
 | `SKILL--` | Governance | Agent capability |
 | `PROTOCOL--` | Governance | Interaction contract |
 | `GUARDRAIL--` | Governance | Enforced behavioural policy |
@@ -125,11 +126,13 @@ where most contributions go.
 - **Phase:** P3.
 - **Required fields:** `metadata`, `architectural_pattern`, `data_logic`, `geography`, `api_contracts`, `verification_plan`.
 
-### `T*` · microtask
+### `TASK--` · microtask
 - **Use for:** one concern of one feature, ≤ 400 token prompt, ≥ 2 acceptance tests.
 - **Don't use for:** anything bigger than a single function-shaped output.
 - **Phase:** P4.
-- **Format:** `T1_validate-input`, `T2_error-mapper` (not `TYPE--SLUG`).
+- **Tier:** light — direct write OK. Tasks churn fast and are leaf nodes.
+- **Required:** `crosslinks.parent_blueprint: [BLUEPRINT--…]` (orphan tasks are rejected on `propose-inbound`).
+- **Note:** older `T*.task.yaml` files (e.g. `T1_validate-input`, `T2_error-mapper`) are recognised; new tasks use the `TASK--<slug>` form so the chain walker (`gks verify-flow`) can traverse them.
 
 ### `AUDIT--` · test results / quality report
 - **Use for:** sign-off documents recording verification outcomes.
@@ -198,6 +201,18 @@ are process-tracking event logs.
 - **Use for:** distilled lesson from a production incident.
 - **Don't use for:** the raw event log — that's `MSP-INC-` in process tracking.
 - **Lifecycle:** written after triage; mostly stable thereafter.
+
+### `HOTFIX--` · hotfix escape-hatch atom
+- **Use for:** the 48-hour backfill window opened when prod is down and a fix
+  ships before P1–P3 atoms exist (master-spec §6.4, ADR-014).
+- **Don't use for:** the post-mortem itself — that's `INC--`.
+- **Tier:** light — written automatically by `gks hotfix open` or the
+  pre-commit hook when a `HOTFIX` tag is detected.
+- **Required:** `valid_to` (= commit-time + 48 h) and `meta.commit_sha`.
+- **Closure rule:** backfill atoms (`CONCEPT--`, `ADR--`, `BLUEPRINT--`) must
+  declare `crosslinks.resolves: [HOTFIX--<sha>]`. After `valid_to`, the
+  pre-commit hook blocks any commit on the affected files until that resolution
+  is in place.
 
 ### `ISSUE--` · live issue tracker
 - **Use for:** open problems / bugs / improvement requests — replaces Linear/Jira.

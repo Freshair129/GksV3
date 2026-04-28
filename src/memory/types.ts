@@ -7,6 +7,34 @@
 export type Phase = 0 | 1 | 2 | 3 | 4 | 5
 export type Status = 'raw' | 'draft' | 'stable' | 'deprecated' | 'invalid'
 
+/**
+ * Normalise a status string from external input (CLI flags, frontmatter
+ * authored against master-spec wording, MCP requests) into our canonical
+ * `Status` enum (ADR-014 item 2).
+ *
+ * Master-spec §6.3 writes `APPROVED`; the canonical value is `stable`
+ * (same semantic — promoted, citable, not draft). `accepted` (used by the
+ * ADR README) maps to `stable` too. Unknown values pass through lowercased
+ * so callers can decide whether to validate further.
+ */
+export function normaliseStatus(s: string | undefined | null): string | undefined {
+  if (s == null) return undefined
+  const lower = s.toLowerCase().trim()
+  if (lower === 'approved' || lower === 'accepted') return 'stable'
+  return lower
+}
+
+/**
+ * The chain-walker (`gks verify-flow`) treats these statuses as "the gate
+ * is open" — i.e. the atom is promoted, citable, and downstream code may
+ * depend on it. Anything else is either pending (draft, raw) or terminal
+ * (deprecated, invalid).
+ */
+export function isApprovedStatus(s: string | undefined | null): boolean {
+  const n = normaliseStatus(s)
+  return n === 'stable'
+}
+
 export type AtomicType =
   | 'concept'
   | 'frame'
@@ -18,6 +46,8 @@ export type AtomicType =
   | 'rule'
   | 'fact'
   | 'insight'
+  | 'task'
+  | 'hotfix'
   | string
 
 /** One line in gks/00_index/atomic_index.jsonl */

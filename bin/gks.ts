@@ -37,6 +37,8 @@ import { recall, retain, reflect } from '../src/memory/api.js'
 import { truncate } from '../src/lib/text.js'
 import { IssueStore } from '../src/issue/store.js'
 import { ISSUE_STATUSES, ISSUE_PRIORITIES, type IssueStatus, type IssuePriority } from '../src/issue/types.js'
+import { HotfixStore } from '../src/hotfix/store.js'
+import { isOverdue } from '../src/hotfix/types.js'
 
 interface GlobalFlags {
   root: string
@@ -83,6 +85,9 @@ async function main(): Promise<void> {
       break
     case 'issue':
       await cmdIssue(subArgv)
+      break
+    case 'hotfix':
+      await cmdHotfix(subArgv)
       break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
@@ -621,6 +626,148 @@ async function cmdIssueDashboard(argv: string[]): Promise<void> {
   })
 }
 
+// ─── hotfix escape hatch (light-tier per ADR-014) ──────────────────────────
+
+async function cmdHotfix(argv: string[]): Promise<void> {
+  const sub = argv[0]
+  if (!sub) {
+    console.error('gks hotfix: missing subcommand. Try: open | list | close | check')
+    process.exit(1)
+  }
+  const rest = argv.slice(1)
+  switch (sub) {
+    case 'open': await cmdHotfixOpen(rest); break
+    case 'list': await cmdHotfixList(rest); break
+    case 'close': await cmdHotfixClose(rest); break
+    case 'check': await cmdHotfixCheck(rest); break
+    default:
+      console.error(`gks hotfix: unknown subcommand '${sub}'`)
+      process.exit(1)
+  }
+}
+
+function openHotfixStore(flags: GlobalFlags): HotfixStore {
+  return new HotfixStore({ root: flags.root })
+}
+
+async function cmdHotfixOpen(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      sha: { type: 'string' },
+      title: { type: 'string' },
+      file: { type: 'string', multiple: true },
+      reason: { type: 'string' },
+      ref: { type: 'string' },
+      'related-incident': { type: 'string', multiple: true },
+    },
+  })
+  const flags = readGlobals(values)
+  const sha = (values['sha'] as string | undefined) ?? positionals[0]
+  if (!sha) {
+    console.error('gks hotfix open: missing --sha=... (or positional commit SHA)')
+    process.exit(1)
+  }
+  const title = (values['title'] as string | undefined) ?? `Hotfix at ${sha.slice(0, 7)}`
+  const store = openHotfixStore(flags)
+  const hotfix = await store.open({
+    commitSha: sha,
+    title,
+    files: values['file'] as string[] | undefined,
+    reason: values['reason'] as string | undefined,
+    ref: values['ref'] as string | undefined,
+    relatedIncidents: values['related-incident'] as string[] | undefined,
+  })
+  emit(flags, hotfix, () => {
+    console.log(`opened ${hotfix.id}`)
+    console.log(`  valid_to: ${hotfix.valid_to}  (48h backfill window)`)
+    if (hotfix.linked_symbols?.length) {
+      console.log(`  files:    ${hotfix.linked_symbols.map((s) => s.file).join(', ')}`)
+    }
+  })
+}
+
+async function cmdHotfixList(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: { ...GLOBAL_OPTIONS, overdue: { type: 'boolean' }, pending: { type: 'boolean' } },
+  })
+  const flags = readGlobals(values)
+  const store = openHotfixStore(flags)
+  const all = values['overdue'] ? await store.listOverdue() : await store.list()
+  const filtered = values['pending'] ? all.filter((h) => !h.closed_at) : all
+  emit(flags, filtered, () => {
+    if (filtered.length === 0) {
+      console.log('no hotfixes')
+      return
+    }
+    const now = new Date()
+    for (const h of filtered) {
+      const overdue = isOverdue(h, now) ? ' [OVERDUE]' : ''
+      const closed = h.closed_at ? ' [closed]' : ''
+      console.log(`${h.id}  valid_to=${h.valid_to}${overdue}${closed}  ${h.title}`)
+    }
+  })
+}
+
+async function cmdHotfixClose(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { ...GLOBAL_OPTIONS, 'resolved-by': { type: 'string', multiple: true } },
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks hotfix close: missing HOTFIX-- id')
+    process.exit(1)
+  }
+  const resolvedBy = (values['resolved-by'] as string[] | undefined) ?? []
+  if (resolvedBy.length === 0) {
+    console.error('gks hotfix close: --resolved-by=... is required (e.g. ADR--MY-FIX)')
+    process.exit(1)
+  }
+  const store = openHotfixStore(flags)
+  const hotfix = await store.close(id, resolvedBy)
+  emit(flags, hotfix, () => {
+    console.log(`closed ${hotfix.id}  resolved_by=${hotfix.crosslinks?.resolved_by?.join(', ')}`)
+  })
+}
+
+/**
+ * Pre-commit gate: exits non-zero if any overdue hotfix touches the
+ * supplied --file paths. Used by examples/drift-detection/hotfix-gate.sh.
+ */
+async function cmdHotfixCheck(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: { ...GLOBAL_OPTIONS, file: { type: 'string', multiple: true } },
+  })
+  const flags = readGlobals(values)
+  const files = new Set(((values['file'] as string[] | undefined) ?? []).map((f) => f.trim()).filter(Boolean))
+  const store = openHotfixStore(flags)
+  const overdue = await store.listOverdue()
+  const blocking = overdue.filter((h) => {
+    if (files.size === 0) return true
+    const touched = h.linked_symbols?.map((s) => s.file) ?? []
+    return touched.some((f) => files.has(f))
+  })
+  if (blocking.length === 0) {
+    if (!flags.json) console.log('hotfix gate: clear')
+    return
+  }
+  emit(flags, { blocking }, () => {
+    console.error(`hotfix gate: ${blocking.length} overdue hotfix(es) block this commit`)
+    for (const h of blocking) {
+      console.error(`  ${h.id}  valid_to=${h.valid_to}  ${h.title}`)
+      console.error(`    backfill missing — write CONCEPT/ADR/BLUEPRINT then \`gks hotfix close ${h.id} --resolved-by=...\``)
+    }
+  })
+  process.exit(1)
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -703,6 +850,10 @@ Subcommands
   issue assign ID ASSIGNEE
   issue close ID [--resolved-by=ADR-...]
   issue dashboard [--md]                     count by status
+  hotfix open SHA --title="..." [--file=...] [--reason=...] [--ref=...]
+  hotfix list [--overdue] [--pending]
+  hotfix close HOTFIX--XXXXXXX --resolved-by=ADR-... [--resolved-by=BLUEPRINT-...]
+  hotfix check --file=src/x.ts [--file=src/y.ts]   pre-commit gate; exit-1 if overdue
 
 Global flags
   --root=PATH      repo root (default: cwd, or GKS_ROOT env)

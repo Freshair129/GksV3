@@ -54,7 +54,8 @@ default; `--no-verify` is the explicit opt-out.
 examples/drift-detection/
 ├── README.md                            # you are here
 ├── check-drift.ts                       # the orchestrator script
-├── pre-push-hook.sh                     # example git hook
+├── pre-push-hook.sh                     # example git hook (drift)
+├── hotfix-gate.sh                       # example pre-commit hook (hotfix backfill, ADR-014)
 ├── smoke-test.ts                        # end-to-end (21 assertions)
 └── fixtures/
     ├── gks/                             # 4 atoms with linked_symbols / geography

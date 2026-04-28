@@ -18,6 +18,8 @@ export type AtomicType =
   | 'rule'
   | 'fact'
   | 'insight'
+  | 'task'
+  | 'hotfix'
   | string
 
 /** One line in gks/00_index/atomic_index.jsonl */

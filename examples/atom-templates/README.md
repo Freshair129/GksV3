@@ -18,6 +18,7 @@ ISSUE-- (light-governance tier per ADR-012).
 - [`FLOW.md`](./FLOW.md) — data / UI flow
 - [`ENTITY.md`](./ENTITY.md) — data schema
 - [`BLUEPRINT.yaml`](./BLUEPRINT.yaml) — implementation plan (YAML, not MD)
+- [`TASK.md`](./TASK.md) — microtask (leaf, ≤ 400-token prompt)
 - [`AUDIT.md`](./AUDIT.md) — verification report
 
 ### Agent governance
@@ -32,6 +33,7 @@ ISSUE-- (light-governance tier per ADR-012).
 ### Ops governance
 - [`INC.md`](./INC.md) — incident post-mortem
 - [`ISSUE.md`](./ISSUE.md) — live issue (light-governance)
+- [`HOTFIX.md`](./HOTFIX.md) — hotfix escape hatch (48h backfill window, ADR-014)
 - [`RISK.md`](./RISK.md) — risk + mitigation
 - [`RUNBOOK.md`](./RUNBOOK.md) — operational response guide
 - [`SLO.md`](./SLO.md) — service-level objective

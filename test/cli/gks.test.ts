@@ -11,11 +11,14 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const CLI = resolve(__dirname, '..', '..', 'bin', 'gks.ts')
+const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 
 function run(args: string[], cwd = process.cwd()): { stdout: string; stderr: string; code: number } {
-  const result = spawnSync('npx', ['tsx', CLI, ...args], {
+  const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const result = spawnSync(cmd, ['tsx', CLI, ...args], {
     cwd,
     encoding: 'utf8',
+    shell: true,
     env: { ...process.env, GKS_EMBEDDER: 'mock', GKS_LOG_LEVEL: 'error' },
   })
   return {

@@ -3,14 +3,18 @@
  * against a tempdir (no Postgres needed).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createHnswBackend, mockEmbedder } from '../../src/memory/index.js'
 
-describe('HnswBackend', () => {
+const hnswlibAvailable = await import('hnswlib-node')
+  .then(() => true)
+  .catch(() => false)
+
+describe.skipIf(!hnswlibAvailable)('HnswBackend', () => {
   let dir = ''
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'gks-hnsw-'))

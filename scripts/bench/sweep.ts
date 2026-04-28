@@ -188,7 +188,8 @@ async function runCell(cell: CellSpec, config: MatrixConfig): Promise<CellResult
   args.push(`--work-dir=./benchmarks/.cache/sweep/${cellId}`)
 
   const script = `benchmarks/${cell.benchmark}.ts`
-  const result = await execAndCapture('npx', ['tsx', script, ...args], 600_000)
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const result = await execAndCapture(npx, ['tsx', script, ...args], 600_000)
 
   return {
     benchmark: cell.benchmark,
@@ -208,7 +209,7 @@ async function execAndCapture(
   timeoutMs: number,
 ): Promise<{ ok: boolean; report?: Record<string, unknown>; error?: string }> {
   return new Promise((resolvePromise) => {
-    const child = spawn(cmd, args, { env: process.env })
+    const child = spawn(cmd, args, { env: process.env, shell: process.platform === 'win32' })
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
@@ -246,35 +247,42 @@ async function execAndCapture(
 
 /** Each runner prints a JSON object inside a horizontal-rule banner. Pull it. */
 function extractReportJson(stdout: string): Record<string, unknown> | null {
-  const start = stdout.indexOf('{')
-  if (start === -1) return null
-  // Find the matching closing brace by counting depth (string-aware).
-  let depth = 0
-  let inString = false
-  let escape = false
-  for (let i = start; i < stdout.length; i++) {
-    const ch = stdout[i]!
-    if (escape) {
-      escape = false
-      continue
-    }
-    if (ch === '\\') {
-      escape = true
-      continue
-    }
-    if (ch === '"') inString = !inString
-    if (inString) continue
-    if (ch === '{') depth++
-    else if (ch === '}') {
-      depth--
-      if (depth === 0) {
-        try {
-          return JSON.parse(stdout.slice(start, i + 1)) as Record<string, unknown>
-        } catch {
-          return null
+  // The runners emit structured log lines before the final multi-line report.
+  // Strategy: find the last '}' in stdout, then scan backwards to its matching
+  // '{' (depth-counting, string-aware), then parse that block.
+  let end = stdout.lastIndexOf('}')
+  while (end !== -1) {
+    let depth = 0
+    let inString = false
+    let escape = false
+    for (let i = end; i >= 0; i--) {
+      const ch = stdout[i]!
+      if (!inString) {
+        if (ch === '}') depth++
+        else if (ch === '{') {
+          depth--
+          if (depth === 0) {
+            try {
+              const parsed = JSON.parse(stdout.slice(i, end + 1)) as Record<string, unknown>
+              // Skip structured log lines (always have "level" + "msg").
+              if ('level' in parsed && 'msg' in parsed) break
+              return parsed
+            } catch {
+              break
+            }
+          }
+        } else if (ch === '"') {
+          // Entering a string — need to check for escape sequences going backwards
+          // is complex; just trust the JSON.parse to catch malformed strings.
+          inString = true
         }
+      } else {
+        if (ch === '"' && !escape) inString = false
+        escape = ch === '\\'
       }
     }
+    // Try the next-to-last '}'
+    end = stdout.lastIndexOf('}', end - 1)
   }
   return null
 }

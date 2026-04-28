@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.5.6
+
+### Patch Changes
+
+- Fix Windows compatibility and benchmark sweep metric extraction.
+
+  - CLI and re-indexer integration tests now work on Windows (`spawnSync` uses `shell: true` + `npx.cmd`)
+  - HNSW tests skip gracefully when native addon is not compiled for the current Node version
+  - Benchmark sweep (`bench:sweep`) correctly extracts headline metrics from multi-line runner output
+  - Remove unused `FRAME--TRI-BRAIN-ARCHITECTURE` document (eva-cli spec belongs in a separate repo)
+
 All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
@@ -85,8 +96,8 @@ version bumped to 3.5.5 (was 3.5.4); README MCP tool count updated.
 ### Added — atoms recognised in the taxonomy
 
 - `HOTFIX--` (light tier) — escape-hatch atom with required `valid_to`
-  + `meta.commit_sha`. `gks/hotfix/`. Closed by backfill atoms via
-  `crosslinks.resolves`.
+  - `meta.commit_sha`. `gks/hotfix/`. Closed by backfill atoms via
+    `crosslinks.resolves`.
 
 Removed (no production users — ADR-015):
 
@@ -192,6 +203,7 @@ inside GKS without depending on Linear / Jira / GitHub Issues.
   gks issue close ID [--resolved-by=ADR-…]
   gks issue dashboard [--md]
   ```
+
 - **Audit ops** — `issue_create`, `issue_comment`, `issue_status_change`,
   `issue_assign`, `issue_close` added to the `AuditOp` union.
 
@@ -237,6 +249,7 @@ that ADR-010 made queryable.
   - `--verbose` lists each indexed / skipped file.
 
 ### Tests
+
 - 256 passing (was 251 in 3.5.2) across 33 test files; 3 still opt-in.
   +5 new integration tests covering happy path, citation preservation,
   invalid-id skipping, dry-run, and self-reference avoidance.
@@ -271,6 +284,7 @@ reverse — given a code path, find the atoms that govern it.
   the two; GKS still has no GitNexus dependency).
 
 ### Tests
+
 - 251 passing (was 241 in 3.5.1) across 32 test files; 3 still opt-in.
   +10 new tests covering match semantics + CLI + MCP round-trips.
 
@@ -386,6 +400,7 @@ API changes; safe to upgrade.
   to-end smoke test (`smoke-test.ts`, 7 assertions) passes.
 
 ### Tests
+
 - 241 passing (was 237 in 3.5.0) across 32 test files; 3 still opt-in.
   +3 new tests: 2 inbound (renders / omits) + 1 CLI (round-trip).
 
@@ -400,6 +415,7 @@ publish — the tree was always private up to this point.
 ### Added
 
 #### Memory layers
+
 - **Atomic** layer with JSONL index, exact-id lookup that never
   hallucinates, hot-reload via mtime, filter by phase / type / status /
   tag.
@@ -421,6 +437,7 @@ publish — the tree was always private up to this point.
   destined for `gks/`.
 
 #### Core API
+
 - `retain(content, namespace?, conflictPolicy?)` with bi-temporal
   versioning (`valid_from` / `valid_to` / `superseded_by`), namespace-
   scoped conflict resolution, single-embed optimization, and batched
@@ -431,6 +448,7 @@ publish — the tree was always private up to this point.
   with a pluggable LLM-backed extractor (Anthropic Sonnet 4.6 default).
 
 #### Multi-tenancy
+
 - First-class `Namespace` type (`tenant_id` / `user_id` / `session_id` /
   `agent_id`) threaded through retain / recall / supersede.
 - `crossNamespace: true` opt-out for admin / analytics paths.
@@ -439,6 +457,7 @@ publish — the tree was always private up to this point.
   namespace.
 
 #### Production hardening
+
 - Retry with exponential backoff + full jitter on every network call.
 - Circuit breaker per provider; auth errors don't trip the breaker.
 - Bounded LRU on the Obsidian cache.
@@ -450,6 +469,7 @@ publish — the tree was always private up to this point.
 - `gks-migrate` runner for forward-migrating stores.
 
 #### Observability
+
 - OpenTelemetry façade with no-op default — zero tax when no SDK is
   registered.
 - Spans on `gks.retain` / `gks.recall`, histograms for embedder /
@@ -458,11 +478,13 @@ publish — the tree was always private up to this point.
   manager.
 
 #### Surfaces
+
 - `gks-mcp-server` — MCP server exposing six tools over stdio.
 - `gks` CLI — `init / retain / recall / lookup / propose-inbound /
-  reflect / status` subcommands with stdin support and `--json` mode.
+reflect / status` subcommands with stdin support and `--json` mode.
 
 #### Benchmarks
+
 - Backend-pluggable runners for **LoCoMo**, **LongMemEval**, and
   **BEAM** (10M-token scale).
 - `bench:sweep` orchestrator running the embedder × reranker × backend
@@ -470,6 +492,7 @@ publish — the tree was always private up to this point.
 - Tiny fixtures shipped for offline smoke testing.
 
 #### Docs
+
 - `docs/ARCHITECTURE.md` with five mermaid diagrams (layer dependency,
   retain flow, recall flow, bi-temporal lifecycle, cross-cutting).
 - `docs/ULTRAPLAN.md` — six-phase roadmap.
@@ -481,11 +504,13 @@ publish — the tree was always private up to this point.
   first-class, FalkorDB cut, OTel no-op default, MCP stdio-only).
 
 ### Tests
+
 - 237 passing across 32 test files; 3 opt-in (gated by env vars for
   live rerank server).
 - CI runs Node 20 + 22 with mock embedder for hermeticity.
 
 ### Known gaps (deferred)
+
 - Real-scale benchmark numbers (Phase 3 tooling is in place; the runs
   themselves need infra the project ships docker-compose files for).
 - `KuzuGraphBackend` for users who want embedded graph without

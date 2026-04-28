@@ -39,6 +39,9 @@ import { IssueStore } from '../src/issue/store.js'
 import { ISSUE_STATUSES, ISSUE_PRIORITIES, type IssueStatus, type IssuePriority } from '../src/issue/types.js'
 import { HotfixStore } from '../src/hotfix/store.js'
 import { isOverdue } from '../src/hotfix/types.js'
+import { verifyFlow, formatVerifyFlowResult } from '../src/memory/verify-flow.js'
+import { validateLinks, formatValidateLinksResult } from '../src/memory/validate-links.js'
+import { scaffoldNewFeature } from '../src/scaffold/new-feature.js'
 
 interface GlobalFlags {
   root: string
@@ -88,6 +91,15 @@ async function main(): Promise<void> {
       break
     case 'hotfix':
       await cmdHotfix(subArgv)
+      break
+    case 'verify-flow':
+      await cmdVerifyFlow(subArgv)
+      break
+    case 'validate':
+      await cmdValidate(subArgv)
+      break
+    case 'new-feature':
+      await cmdNewFeature(subArgv)
       break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
@@ -768,6 +780,96 @@ async function cmdHotfixCheck(argv: string[]): Promise<void> {
   process.exit(1)
 }
 
+// ─── chain walker (ADR-014 item 3) ─────────────────────────────────────────
+
+async function cmdVerifyFlow(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: GLOBAL_OPTIONS,
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks verify-flow: missing atom id (e.g. FEAT--MY-FEATURE)')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+  // We need direct access to the index map; open the AtomicLayer via
+  // MemoryStore.atomic.
+  const atomic = store.atomic
+  await atomic.loadIndex()
+  const byId = new Map<string, ReturnType<typeof atomic.filter>[number]>()
+  for (const e of atomic.filter({})) byId.set(e.id, e)
+  const result = verifyFlow(id, byId)
+  emit(flags, result, () => {
+    for (const line of formatVerifyFlowResult(result)) console.log(line)
+  })
+  if (!result.ok) process.exit(1)
+}
+
+// ─── link checker (ADR-014 item 6) ─────────────────────────────────────────
+
+async function cmdValidate(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: { ...GLOBAL_OPTIONS, links: { type: 'boolean' } },
+  })
+  const flags = readGlobals(values)
+  // Default mode is --links — it's the only check we ship today.
+  const store = await openStore(flags)
+  await store.atomic.loadIndex()
+  const byId = new Map<string, ReturnType<typeof store.atomic.filter>[number]>()
+  for (const e of store.atomic.filter({})) byId.set(e.id, e)
+  const result = validateLinks(byId)
+  emit(flags, result, () => {
+    for (const line of formatValidateLinksResult(result)) console.log(line)
+  })
+  if (!result.ok) process.exit(1)
+}
+
+// ─── new-feature scaffolder (ADR-014 item 5) ───────────────────────────────
+
+async function cmdNewFeature(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      slug: { type: 'string' },
+      title: { type: 'string' },
+      concept: { type: 'string' },
+      adr: { type: 'string' },
+      'blueprint-file': { type: 'string', multiple: true },
+      task: { type: 'string', multiple: true },
+    },
+  })
+  const flags = readGlobals(values)
+  const slug = (values['slug'] as string | undefined) ?? positionals[0]
+  if (!slug) {
+    console.error('gks new-feature: missing slug (positional or --slug=...)')
+    process.exit(1)
+  }
+  const title = (values['title'] as string | undefined) ?? slug
+  const store = await openStore(flags)
+  const result = await scaffoldNewFeature(store.inbound, {
+    slug,
+    title,
+    conceptBody: values['concept'] as string | undefined,
+    adrBody: values['adr'] as string | undefined,
+    blueprintFiles: values['blueprint-file'] as string[] | undefined,
+    tasks: values['task'] as string[] | undefined,
+  })
+  emit(flags, result, () => {
+    console.log(`scaffolded ${result.proposed.length} candidate atom(s) in inbound queue:`)
+    for (const p of result.proposed) {
+      console.log(`  ${p.id.padEnd(36)}  ${p.path}`)
+    }
+    console.log('')
+    console.log('Review and promote with `gks inbound list` / `gks inbound promote`.')
+  })
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -854,6 +956,10 @@ Subcommands
   hotfix list [--overdue] [--pending]
   hotfix close HOTFIX--XXXXXXX --resolved-by=ADR-... [--resolved-by=BLUEPRINT-...]
   hotfix check --file=src/x.ts [--file=src/y.ts]   pre-commit gate; exit-1 if overdue
+  verify-flow ID                              walk crosslinks; exit-1 if any node not stable
+  validate [--links]                          read-only crosslink integrity check
+  new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
+                                              scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue
 
 Global flags
   --root=PATH      repo root (default: cwd, or GKS_ROOT env)

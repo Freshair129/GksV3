@@ -898,6 +898,22 @@ gks reflect MSP-SESS-260426ABCD
 gks status
 ```
 
+**Doc-to-code enforcement (ADR-014, 3.5.5):**
+
+```sh
+gks new-feature rate-limit --title="Per-tenant rate limit" \
+    --concept="Why" --adr="What we picked" \
+    --blueprint-file=src/api/rl.ts --blueprint-file=src/db/quota.ts \
+    --task=validate-input --task=error-mapper
+                                          # drops 4-5 candidates into inbound queue
+gks verify-flow FEAT--RATE-LIMIT          # walk crosslinks; exit-1 on broken chain
+gks validate --links                      # crosslink integrity over all atoms
+gks hotfix open <full-sha> --title="prod down" --file=src/api/rl.ts
+gks hotfix list [--overdue] [--pending]
+gks hotfix close HOTFIX--ABC1234 --resolved-by=ADR--RATE-LIMIT-FIX
+gks hotfix check --file=src/api/rl.ts     # pre-commit gate; exit-1 if 48h window passed
+```
+
 **Issue tracker (ADR-012, 3.5.4):**
 
 ```sh
@@ -1372,6 +1388,8 @@ so every published tarball has both passing tests and a clean dist.
 | 010 | Bidirectional traceability via reverse citation lookup |
 | 011 | Test policy |
 | 012 | Extended atomic taxonomy + ISSUE-- as self-hosted tracker |
+| 013 | Atom folders by type, not by phase |
+| 014 | Doc-to-code enforcement model (master-spec §6 → GKS primitives) |
 
 ---
 
@@ -1380,7 +1398,8 @@ so every published tarball has both passing tests and a clean dist.
 ```
 verbs:    retain · recall · reflect · lookup · lookupBySymbol · proposeInbound
 layers:   atomic · vector · episodic · obsidian
-extras:   IssueStore (light-tier — ADR-012)
+extras:   IssueStore · HotfixStore (light-tier — ADR-012, ADR-014)
+gates:    verifyFlow · validateLinks · scaffoldNewFeature (ADR-014)
 plugins:  VectorBackend · GraphBackend · Reranker · LlmClient · ObsidianAdapter · Embedder
 surfaces: TypeScript API · MCP server (8 tools) · CLI (npx gks)
 ops:      audit · cost · OTel · retry · circuit-breaker · schema-version

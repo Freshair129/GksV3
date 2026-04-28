@@ -8,9 +8,11 @@ title: <One-line functional requirement>
 tags: [functional]
 priority: medium                # low | medium | high | must
 crosslinks:
-  parent: REQ--<umbrella>       # if part of a larger requirement
-  satisfied_by: []              # FEAT-- / BLUEPRINT-- that implement this
-  verified_by: []               # AUDIT-- proving this requirement met
+  parent: REQ--<umbrella>       # if part of a larger requirement (Hierarchical Link)
+  satisfied_by: []              # FEAT-- / BLUEPRINT-- that implement this (Inverse Link)
+  verified_by: []               # AUDIT-- proving this requirement met (Resolution Link)
+  governed_by: []               # ADR-- that dictates constraints for this FR (Governance Link)
+  references: []                # Contextual background / external docs (Context Link)
 ---
 
 # FR — <Title>

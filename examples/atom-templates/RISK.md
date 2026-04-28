@@ -10,8 +10,9 @@ title: <One-line risk summary>
 tags: [risk]
 identified_at: <ISO timestamp>
 crosslinks:
-  mitigated_by: []              # ADR-- / GUARDRAIL-- / RUNBOOK-- addressing this
-  related_incidents: []         # INC-- where this risk materialised (becomes one)
+  mitigated_by: []              # ADR-- / GUARDRAIL-- / RUNBOOK-- addressing this (Inverse Link)
+  related_incidents: []         # INC-- where this risk materialised (becomes one) (Backlink/Peer Link)
+  references: []                # Context / background for this risk (Context Link)
 ---
 
 # RISK — <Title>

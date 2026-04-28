@@ -7,8 +7,10 @@ vault_id: <YOUR-PROJECT>
 title: <Audit subject>
 tags: [verification]
 crosslinks:
-  audits: BLUEPRINT--FEAT-<NNN>
-  resolves: []                   # FR-- / NFR-- proven by this audit
+  audits: BLUEPRINT--FEAT-<NNN>     # The implementation plan being verified (Plan Link)
+  resolves: []                      # FR-- / NFR-- / ISSUE-- / INC-- proven/fixed by this audit (Resolution Link)
+  references: []                    # TASK-- / FEAT-- background (Context Link)
+  governed_by: []                   # ADR-- / FRAME-- criteria (Governance Link)
 audited_at: <ISO timestamp>
 auditor: <MSP-AGT-... or MSP-USR-...>
 ---

@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AtomicEntry, InboundArtifact } from '@evaai/gks';
+import type { AtomicEntry, InboundArtifact } from '../../src/memory/types.js';
 
 /**
  * Minimal Task Tracker stub (Orchestrator-side).
@@ -41,7 +41,7 @@ export async function openProjectFromBlueprint(
   const taskDir = join(root, '.brain', ns, 'tasks', slug);
   await mkdir(taskDir, { recursive: true });
 
-  const tasks: TaskRow[] = geography.map((path, index) => ({
+  const tasks: TaskRow[] = geography.map((path: string, index: number) => ({
     id: `T${index + 1}`,
     path,
     status: 'open',

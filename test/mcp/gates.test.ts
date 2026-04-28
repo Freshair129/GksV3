@@ -12,7 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 
 import { MemoryStore, mockEmbedder } from '../../src/memory/index.js'
-import { createGksMcpServer } from '../../src/mcp-server/index.ts'
+import { createGksMcpServer } from '../../src/mcp-server/index.js'
 
 interface ToolReply {
   content: Array<{ type: string; text?: string }>

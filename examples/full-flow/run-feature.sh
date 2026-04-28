@@ -73,7 +73,7 @@ read -p "Press Enter to continue after editing..."
 echo -e "\n${BLUE}[P1-P3] Promoting candidates to stable atoms...${NC}"
 echo "In a real flow, you would run 'gks retain' or move files to gks/ and reindex."
 echo "Running reindex now..."
-npm run msp:reindex
+npm run msp:index
 
 # 7. Pre-code Gate
 echo -e "\n${BLUE}[Gate] Running verify-flow before code generation...${NC}"

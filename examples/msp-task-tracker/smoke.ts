@@ -30,10 +30,11 @@ async function main() {
     await store.init();
     
     // 2. Promote a fake BLUEPRINT atom
+    // Uses the flat layout from ADR-013: gks/blueprint/, not gks/03_blueprint/.
     const blueprintId = 'BLUEPRINT--SMOKE-TEST';
-    const blueprintDir = join(smokeRoot, 'gks', '03_blueprint');
+    const blueprintDir = join(smokeRoot, 'gks', 'blueprint');
     await mkdir(blueprintDir, { recursive: true });
-    
+
     const blueprintBody = [
       '# SMOKE TEST',
       '```yaml',
@@ -42,9 +43,9 @@ async function main() {
       '  - test/smoke.test.ts',
       '```'
     ].join('\n');
-    
+
     await writeFile(join(blueprintDir, 'smoke-test.md'), blueprintBody);
-    
+
     // Update index manually (simulating a promotion)
     const indexDir = join(smokeRoot, 'gks', '00_index');
     await mkdir(indexDir, { recursive: true });
@@ -54,7 +55,7 @@ async function main() {
       type: 'blueprint',
       status: 'stable',
       vault_id: 'V',
-      path: '03_blueprint/smoke-test.md',
+      path: 'blueprint/smoke-test.md',
       geography: ['src/smoke.ts', 'test/smoke.test.ts']
     };
     await writeFile(join(indexDir, 'atomic_index.jsonl'), JSON.stringify(row) + '\n');

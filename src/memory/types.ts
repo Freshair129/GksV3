@@ -1,7 +1,7 @@
 /**
  * Shared types for GKS v3 memory fabric.
  *
- * Reference: BLUEPRINT--memory (Layer 1-4), FRAME--TRI-BRAIN-ARCHITECTURE §3.3.
+ * Reference: BLUEPRINT--memory (Layer 1-4).
  */
 
 export type Phase = 0 | 1 | 2 | 3 | 4 | 5

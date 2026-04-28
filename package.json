@@ -82,7 +82,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/bin/gks.js dist/bin/gks-mcp-server.js",
+    "build": "tsc -p tsconfig.build.json && node -e \"['dist/bin/gks.js','dist/bin/gks-mcp-server.js'].forEach(f=>{try{const s=require('fs').statSync(f);require('fs').chmodSync(f,s.mode|0o111)}catch{}})\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

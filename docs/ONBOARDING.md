@@ -260,6 +260,128 @@ on by default — check `.brain/default/cost.jsonl`.
 
 ---
 
+## When you actually need a full migration
+
+The incremental path above is the default because the most common failure
+mode is the opposite — teams try to migrate everything on day one, burn
+two weeks producing empty atom shells, lose interest, and quietly fall
+back to Notion. Don't be that team.
+
+But there are real cases where a full migration is correct:
+
+| Situation                                         | Why incremental doesn't fit            |
+|---------------------------------------------------|----------------------------------------|
+| Compliance / audit requires a full decision trail | No partial migration is acceptable     |
+| The old doc system is being shut down             | You're migrating regardless — do it once |
+| Team handoff or acquisition                       | New owners need full context, not partial |
+| Total docs < 50 pages                             | The cost of incremental exceeds the cost of doing it all |
+| You're already rewriting docs from scratch        | Combine the work                       |
+
+If none of those apply, **stop and re-read Phase 1** — the incremental
+path is almost certainly what you want.
+
+### Full-migration playbook (4–8 weeks)
+
+If a full migration is genuinely required, follow these phases. The
+ordering matters — skipping the validation phase is the single biggest
+predictor of failure.
+
+**Phase A — Inventory (1–2 days).** Crawl every source (Confluence,
+Notion, Slack, wiki, Google Docs) into a CSV: `source · url ·
+last_edited · size · owner · proposed_type · action (migrate/archive)`.
+Decision rule: edited within 90 days → migrate; edited > 1 year ago and
+no owner → archive (read-only freeze); regulatory → migrate regardless.
+
+**Phase B — Taxonomy validation (1 week).** Pick 20 representative docs
+from the inventory, sit down with the team, and map each to an atom
+type. If five or more don't fit cleanly, **extend the taxonomy first
+before migrating anything else**. Write conversion rules per
+source/folder so the bulk import is mechanical:
+
+```ts
+// scripts/migration/conversion-rules.ts
+export const rules = {
+  confluence: {
+    'tech-decisions/*': { type: 'adr',     tier: 'strict' },
+    'runbooks/*':       { type: 'runbook', tier: 'light'  },
+    'faq/*':            { skip: true, reason: 'read-only' },
+  },
+  slack: {
+    '#arch-decisions': { type: 'adr', tier: 'strict' },
+    '#incidents':      { type: 'inc', tier: 'light'  },
+  },
+}
+```
+
+**Phase C — Bulk conversion tooling (1 week).** Build the converters
+once, run them many times:
+
+```
+scripts/migration/
+├── confluence-export.ts   ← API → markdown + frontmatter
+├── notion-export.ts       ← notion-api → markdown
+├── slack-thread.ts        ← thread → ADR scaffold (body needs human edit)
+└── batch-import.ts        ← drops everything in gks/_inbound/
+```
+
+**Phase D — Mass import (2–4 weeks).** Strict-tier atoms (ADR,
+BLUEPRINT, FRAME) require human review. Light-tier (RUNBOOK, INC,
+CONCEPT-as-FAQ) can be bulk-promoted.
+
+```sh
+gks inbound bulk-promote --tier light --type runbook
+gks inbound list --type adr | wc -l   # 23 ADRs queued for review
+```
+
+**Critical guardrail:** cap reviews at ≤ 20 strict-tier atoms per day.
+Beyond that, reviewer fatigue produces rubber-stamps and the SSOT loses
+trust before it earns it. Track quota in CI:
+
+```sh
+gks inbound stats --since today
+# review_count: 12  approved: 11  rejected: 1
+# 8 / 20 daily quota remaining
+```
+
+**Phase E — Backfill `linked_symbols` (ongoing, 2+ weeks).** Use AST or
+grep heuristics to *suggest* code symbols per atom; require human
+confirmation. Never auto-apply — false positives poison drift detection.
+
+```sh
+node scripts/migration/suggest-symbols.ts \
+  --atom gks/adr/ADR--JWT-AUTH.md \
+  --code-root src/
+→ src/auth/jwt.ts:verify        (confidence 0.92)
+  src/auth/middleware.ts:authn  (confidence 0.78)
+[a]ccept all · [s]elect · [m]anual · [q]uit
+```
+
+**Phase F — Sunset old systems (1 week).** Banner every old page
+(*"migrated to gks/&lt;type&gt;/&lt;ID&gt;, read-only as of YYYY-MM-DD"*),
+redirect URLs where possible, and run a smoke test: can the team do a
+full day's work using only GKS? If not, find the gap before flipping
+old systems to read-only.
+
+### Even when you full-migrate, don't skip Phase 1
+
+Spend the first two days writing **three ADRs you've already decided**
+(Phase 1 of the incremental path) before touching the inventory. This
+is dogfooding — it surfaces taxonomy bugs and tooling gaps at scale 3,
+not scale 200. The cost is two days; the cost of finding the same bugs
+after a 100-atom import is a re-migration.
+
+```
+Day 1–2:  Phase 1 — three already-made ADRs (validate taxonomy + tools)
+Day 3–5:  Phase A — inventory
+Week 2:   Phase B — taxonomy validation (now informed by real use)
+Week 3:   Phase C — tooling
+Week 4–7: Phase D — mass import
+Week 6+:  Phase E — linked_symbols backfill (overlaps)
+Week 8:   Phase F — sunset
+```
+
+---
+
 ## Where to go next
 
 - [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) — internals + data flow diagrams

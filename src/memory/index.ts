@@ -831,6 +831,8 @@ export type {
   SetupTelemetryOptions,
   SetupResult as TelemetrySetupResult,
 } from '../lib/telemetry-setup.js'
+export { retain, recall, reflect } from './api.js'
+export type { ReflectOptions, ReflectResult } from './api.js'
 
 export { AuditLog } from './audit.js'
 export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'

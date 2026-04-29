@@ -8,7 +8,9 @@
       "Bash(echo \"exit: $?\")",
       "Bash(node -e ' *)",
       "Bash(gemini --version)",
-      "Bash(gemini -p 'You are a code fixer. Fix these 2 test failure causes in this TypeScript/Node.js project: *)"
+      "Bash(gemini -p 'You are a code fixer. Fix these 2 test failure causes in this TypeScript/Node.js project: *)",
+      "Bash(node -e \"const d=require\\('./package.json'\\); console.log\\(JSON.stringify\\(d.scripts,null,2\\)\\)\")",
+      "Bash(npm run *)"
     ]
   }
 }

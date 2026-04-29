@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.6.0
+
+### Minor Changes
+
+- **New: nomic-embed-text-v1.5 local embedder (Thai+English)**
+
+  - `createNomicEmbedder()` — runs `nomic-ai/nomic-embed-text-v1.5` via `@huggingface/transformers`, fully local, no Ollama required
+  - 768-dim, 2048 token context, Thai+English mixed content support
+  - Task prefixes (`search_document:` / `search_query:`) applied internally
+  - Progress logged to stderr on first download (~550MB, cached after)
+  - New auto-chain order: **nomic → ollama → openai → mock**
+
+  **New: public API exports**
+
+  - `retain()`, `recall()`, `reflect()` now exported from `@freshair129/gks`
+  - `createNomicEmbedder()` exported from `@freshair129/gks`
+
+  **New: Claude Code skill layer**
+
+  - 10 slash commands in `.claude/commands/`: `/retain` `/recall` `/lookup` `/new-feature` `/propose` `/verify` `/validate` `/hotfix` `/reflect` `/status`
+
+  **Migration note**
+
+  If you have existing data embedded with Ollama (bge-m3, 1024-dim), run `npm run re-embed` after upgrading to rebuild vector stores with the new 768-dim nomic embedder. To keep using Ollama: set `GKS_EMBEDDER=ollama`.
+
 ## 3.5.6
 
 ### Patch Changes

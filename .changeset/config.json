@@ -5,6 +5,7 @@
   "fixed": [],
   "linked": [],
   "access": "public",
+  "scope": "@freshair129",
   "baseBranch": "claude/build-gks-v3-W8a7V",
   "updateInternalDependencies": "patch",
   "ignore": []

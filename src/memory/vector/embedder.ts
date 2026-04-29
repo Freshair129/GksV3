@@ -16,6 +16,7 @@
 
 import { createHash } from 'node:crypto'
 import { createLogger } from '../../lib/logger.js'
+import { createNomicEmbedder } from './embedder-nomic.js'
 import { extractHttpStatus, withRetry } from '../../lib/retry.js'
 import {
   CircuitBreaker,
@@ -86,7 +87,7 @@ function usageOrEstimate(embedder: Embedder, texts: string[]): number {
 }
 
 export interface EmbedderInfo {
-  provider: 'ollama' | 'openai' | 'mock'
+  provider: 'nomic' | 'ollama' | 'openai' | 'mock'
   model: string
   dimension: number
 }
@@ -97,7 +98,7 @@ export interface Embedder extends EmbedderInfo {
 }
 
 export interface EmbedderOptions {
-  provider?: 'ollama' | 'openai' | 'mock' | 'auto'
+  provider?: 'nomic' | 'ollama' | 'openai' | 'mock' | 'auto'
   ollamaBaseUrl?: string
   ollamaModel?: string
   openaiApiKey?: string
@@ -137,8 +138,19 @@ export async function createEmbedder(opts: EmbedderOptions = {}): Promise<Embedd
   if (forced === 'mock') return mockEmbedder(opts.mockDimension ?? DEFAULT_MOCK_DIM)
   if (forced === 'openai') return openaiEmbedder(opts)
   if (forced === 'ollama') return ollamaEmbedder(opts)
+  if (forced === 'nomic') return createNomicEmbedder()
 
-  // Auto mode: try Ollama, fall back to OpenAI, fall back to mock.
+  // Auto mode: nomic → Ollama → OpenAI → mock
+  try {
+    const e = createNomicEmbedder()
+    // warm-up probe — triggers download on first run
+    await e.embed('ping')
+    log.info('embedder: nomic selected (local, Thai+English)')
+    return e
+  } catch (err) {
+    log.warn('embedder: nomic unavailable, trying ollama', { err: String(err) })
+  }
+
   const ollamaUrl = opts.ollamaBaseUrl ?? process.env['OLLAMA_BASE_URL'] ?? DEFAULT_OLLAMA_URL
   if (await isOllamaAvailable(ollamaUrl)) {
     log.info('embedder: ollama selected', { url: ollamaUrl })
@@ -147,7 +159,7 @@ export async function createEmbedder(opts: EmbedderOptions = {}): Promise<Embedd
 
   const apiKey = opts.openaiApiKey ?? process.env['OPENAI_API_KEY']
   if (apiKey) {
-    log.info('embedder: openai selected (ollama unavailable)')
+    log.info('embedder: openai selected')
     return openaiEmbedder({ ...opts, openaiApiKey: apiKey })
   }
 

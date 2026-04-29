@@ -100,10 +100,8 @@ which will pick up the new nomic embedder automatically.
   - same text embedded twice → identical output (deterministic)
 - Skip if `@huggingface/transformers` not available (like hnswlib pattern)
 
-## Open Questions
+## Decisions
 
-- [ ] Use `fp32` or `q8` (quantized) by default? q8 = half RAM, slightly lower quality
-- [ ] Bundle size: `@huggingface/transformers` is ~15MB package but downloads
-      ~550MB model on first use — should we show a progress indicator?
-- [ ] Should `EmbedderOptions` expose `nomicModel` to let users swap to
-      `multilingual-e5-small` without code changes?
+- [x] **fp32** — full precision, no quality trade-off
+- [x] **Show progress on first download** — log to stderr with percentage
+- [x] **Model fixed** — `nomic-ai/nomic-embed-text-v1.5` not configurable, keeps API simple

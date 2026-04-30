@@ -1,9 +1,10 @@
 ---
-id: ADR--ADD-POC-PREFIX
+proposed_id: ADR--ADD-POC-PREFIX
+review_id: rev-manual-001
 phase: 2
 type: adr
-status: proposed
-vault_id: GKS-CORE
+status: raw
+proposed_at: 2026-04-30T09:00:00Z
 title: Add POC-- prefix — time-boxed hypothesis-test atom (light tier)
 tags: [taxonomy, governance, poc, experiment, lifecycle]
 crosslinks:

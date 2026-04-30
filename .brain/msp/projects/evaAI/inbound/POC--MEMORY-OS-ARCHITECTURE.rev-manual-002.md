@@ -1,9 +1,10 @@
 ---
-id: POC--MEMORY-OS-ARCHITECTURE
+proposed_id: POC--MEMORY-OS-ARCHITECTURE
+review_id: rev-manual-002
 phase: 1
 type: poc
-status: validated
-vault_id: GKS-CORE
+status: raw
+proposed_at: 2026-04-30T09:00:00Z
 title: Memory OS can layer on GKS via MCP without storage-engine changes
 hypothesis: |
   A paradigm-agnostic Memory OS (kernel) can be implemented above GKS using

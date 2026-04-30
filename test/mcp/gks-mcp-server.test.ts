@@ -80,6 +80,7 @@ describe('gks-mcp-server', () => {
         'gks_hotfix_list',
         'gks_hotfix_close',
         'gks_poc_open',
+        'gks_poc_start',
         'gks_poc_list',
         'gks_poc_close',
       ].sort(),

@@ -415,6 +415,25 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     },
   )
 
+  // gks_poc_start
+  server.registerTool(
+    'gks_poc_start',
+    {
+      description:
+        'Transition a POC from `open` to `running` once the experiment is actually under way. Optional — POCs can move directly from open to a terminal status, but using start gives clearer time-series signal for "currently active" filters.',
+      inputSchema: z
+        .object({
+          id: z.string().describe('POC--<SLUG> ID'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const pocStore = new PocStore({ root: opts.store.root, audit: opts.store.audit })
+      const poc = await pocStore.start(args.id)
+      return jsonReply(poc)
+    },
+  )
+
   // gks_poc_list
   server.registerTool(
     'gks_poc_list',

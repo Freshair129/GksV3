@@ -230,4 +230,85 @@ describe('gks-mcp-gates', () => {
     })) as ToolReply
     expect(reply.isError).toBe(true)
   })
+
+  it('gks_issue lifecycle: new → comment → status → close', async () => {
+    // 1. Create
+    const newReply = await client.callTool({
+      name: 'gks_issue_new',
+      arguments: {
+        title: 'MCP smoke',
+        priority: 'high',
+        labels: ['mcp', 'test'],
+        body: 'Initial description over MCP',
+      },
+    })
+    const created = unpack<{ id: string; status: string; priority: string }>(newReply as ToolReply)
+    expect(created.id).toMatch(/^ISSUE--/)
+    expect(created.priority).toBe('high')
+    expect(created.status).toBe('open')
+
+    // 2. List default (active only)
+    const listReply = await client.callTool({
+      name: 'gks_issue_list',
+      arguments: {},
+    })
+    const list = unpack<any[]>(listReply as ToolReply)
+    expect(list.some((i) => i.id === created.id)).toBe(true)
+
+    // 3. Comment
+    const commentReply = await client.callTool({
+      name: 'gks_issue_comment',
+      arguments: { id: created.id, text: 'investigating', actor: 'mcp-tester' },
+    })
+    expect(unpack<{ id: string }>(commentReply as ToolReply).id).toBe(created.id)
+
+    // 4. Show — Discussion section now contains the comment
+    const showReply = await client.callTool({
+      name: 'gks_issue_show',
+      arguments: { id: created.id },
+    })
+    const shown = unpack<{ issue: any; body: string }>(showReply as ToolReply)
+    expect(shown.body).toContain('investigating')
+
+    // 5. Transition status → in_progress
+    const statusReply = await client.callTool({
+      name: 'gks_issue_status',
+      arguments: { id: created.id, status: 'in_progress', actor: 'mcp-tester' },
+    })
+    expect(unpack<{ status: string }>(statusReply as ToolReply).status).toBe('in_progress')
+
+    // 6. Close with resolvedBy
+    const closeReply = await client.callTool({
+      name: 'gks_issue_close',
+      arguments: { id: created.id, actor: 'mcp-tester', resolvedBy: 'ADR--MCP-FIXED' },
+    })
+    const closed = unpack<{ status: string; closed_at: string; crosslinks: any }>(closeReply as ToolReply)
+    expect(closed.status).toBe('closed')
+    expect(closed.closed_at).toBeTruthy()
+    expect(closed.crosslinks.resolved_by).toEqual(['ADR--MCP-FIXED'])
+
+    // 7. List default no longer includes it (default excludes closed)
+    const listAfterReply = await client.callTool({
+      name: 'gks_issue_list',
+      arguments: {},
+    })
+    const listAfter = unpack<any[]>(listAfterReply as ToolReply)
+    expect(listAfter.some((i) => i.id === created.id)).toBe(false)
+
+    // 8. status='all' includes closed
+    const listAllReply = await client.callTool({
+      name: 'gks_issue_list',
+      arguments: { status: 'all' },
+    })
+    const listAll = unpack<any[]>(listAllReply as ToolReply)
+    expect(listAll.some((i) => i.id === created.id)).toBe(true)
+  })
+
+  it('gks_issue_new rejects empty title (zod min(1))', async () => {
+    const reply = (await client.callTool({
+      name: 'gks_issue_new',
+      arguments: { title: '' },
+    })) as ToolReply
+    expect(reply.isError).toBe(true)
+  })
 })

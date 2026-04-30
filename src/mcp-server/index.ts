@@ -31,6 +31,8 @@ import { validateLinks } from '../memory/validate-links.js'
 import { scaffoldNewFeature } from '../scaffold/new-feature.js'
 import { HotfixStore } from '../hotfix/store.js'
 import { PocStore } from '../poc/store.js'
+import { IssueStore } from '../issue/store.js'
+import { ISSUE_STATUSES, ISSUE_PRIORITIES } from '../issue/types.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('mcp-server')
@@ -483,6 +485,127 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
         ...(args.notes ? { notes: args.notes } : {}),
       })
       return jsonReply(poc)
+    },
+  )
+
+  // gks_issue_new (FEAT--ISSUE-TRACKER — closes the "MCP issue tools deferred" line)
+  server.registerTool(
+    'gks_issue_new',
+    {
+      description:
+        'Create a new ISSUE-- atom in the local self-hosted tracker (light-tier per ADR-012). Default priority is medium; status starts as open.',
+      inputSchema: z
+        .object({
+          title: z.string().min(1).describe('Becomes ISSUE--<slug>'),
+          priority: z.enum(ISSUE_PRIORITIES).optional(),
+          labels: z.array(z.string()).optional(),
+          assignee: z.string().optional(),
+          reporter: z.string().optional(),
+          body: z.string().optional().describe('Initial Description body (markdown)'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const issueStore = new IssueStore({ root: opts.store.root, audit: opts.store.audit })
+      const issue = await issueStore.create(args)
+      return jsonReply(issue)
+    },
+  )
+
+  // gks_issue_list
+  server.registerTool(
+    'gks_issue_list',
+    {
+      description: 'List issues in the local tracker. Defaults to active (open / triaged / in_progress / blocked) — pass status="all" for everything including closed.',
+      inputSchema: z
+        .object({
+          status: z.union([z.enum(ISSUE_STATUSES), z.literal('all')]).optional(),
+          priority: z.enum(ISSUE_PRIORITIES).optional(),
+          assignee: z.string().optional(),
+          label: z.string().optional(),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const issueStore = new IssueStore({ root: opts.store.root })
+      return jsonReply(await issueStore.list(args))
+    },
+  )
+
+  // gks_issue_show
+  server.registerTool(
+    'gks_issue_show',
+    {
+      description: 'Read the full ISSUE-- atom — frontmatter + body sections (Description / Reproduction / Discussion / Resolution).',
+      inputSchema: z
+        .object({
+          id: z.string().describe('ISSUE--<slug> ID'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const issueStore = new IssueStore({ root: opts.store.root })
+      return jsonReply(await issueStore.show(args.id))
+    },
+  )
+
+  // gks_issue_comment
+  server.registerTool(
+    'gks_issue_comment',
+    {
+      description: 'Append a chronological entry to an issue\'s ## Discussion section. Audit log records (id, actor).',
+      inputSchema: z
+        .object({
+          id: z.string().describe('ISSUE--<slug> ID'),
+          text: z.string().min(1),
+          actor: z.string().describe('Author of the comment (e.g. tenant-id, user-id, agent-id)'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const issueStore = new IssueStore({ root: opts.store.root, audit: opts.store.audit })
+      const issue = await issueStore.comment(args.id, args.text, args.actor)
+      return jsonReply(issue)
+    },
+  )
+
+  // gks_issue_status
+  server.registerTool(
+    'gks_issue_status',
+    {
+      description: 'Transition an issue to a new status (open / triaged / in_progress / blocked / closed / wontfix). closed/wontfix auto-stamp closed_at.',
+      inputSchema: z
+        .object({
+          id: z.string().describe('ISSUE--<slug> ID'),
+          status: z.enum(ISSUE_STATUSES),
+          actor: z.string(),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const issueStore = new IssueStore({ root: opts.store.root, audit: opts.store.audit })
+      const issue = await issueStore.setStatus(args.id, args.status, args.actor)
+      return jsonReply(issue)
+    },
+  )
+
+  // gks_issue_close
+  server.registerTool(
+    'gks_issue_close',
+    {
+      description: 'Close an issue with status=closed and an optional resolved_by crosslink to an ADR-- / BLUEPRINT-- / FEAT-- atom.',
+      inputSchema: z
+        .object({
+          id: z.string().describe('ISSUE--<slug> ID'),
+          actor: z.string(),
+          resolvedBy: z.string().optional().describe('e.g. ADR--FOO; appended to crosslinks.resolved_by'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const issueStore = new IssueStore({ root: opts.store.root, audit: opts.store.audit })
+      const issue = await issueStore.close(args.id, args.actor, args.resolvedBy)
+      return jsonReply(issue)
     },
   )
 

@@ -30,6 +30,7 @@ import { verifyFlow } from '../memory/verify-flow.js'
 import { validateLinks } from '../memory/validate-links.js'
 import { scaffoldNewFeature } from '../scaffold/new-feature.js'
 import { HotfixStore } from '../hotfix/store.js'
+import { PocStore } from '../poc/store.js'
 import { createLogger } from '../lib/logger.js'
 
 const log = createLogger('mcp-server')
@@ -386,6 +387,83 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
       const hotfixStore = new HotfixStore({ root: opts.store.root, audit: opts.store.audit })
       const hotfix = await hotfixStore.close(args.id, args.resolvedBy)
       return jsonReply(hotfix)
+    },
+  )
+
+  // gks_poc_open (ADR--ADD-POC-PREFIX)
+  server.registerTool(
+    'gks_poc_open',
+    {
+      description:
+        'Open a time-boxed POC atom: declare a falsifiable hypothesis with measurable acceptance criteria and a hard deadline. POCs must terminate; after the deadline the pre-commit hook can block commits touching the experiment files until close.',
+      inputSchema: z
+        .object({
+          slug: z.string().describe('Becomes POC--<UPPER-SLUG>'),
+          title: z.string(),
+          hypothesis: z.string().describe('One paragraph, falsifiable'),
+          acceptanceCriteria: z.array(z.string()).min(1).describe('≥1 measurable check'),
+          deadline: z.string().describe('ISO-8601 UTC; POC must close by this time'),
+          files: z.array(z.string()).optional().describe('Experiment code paths → linked_symbols'),
+          derivesFrom: z.array(z.string()).optional().describe('CONCEPT-- IDs the hypothesis came from'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const pocStore = new PocStore({ root: opts.store.root, audit: opts.store.audit })
+      const poc = await pocStore.open(args)
+      return jsonReply(poc)
+    },
+  )
+
+  // gks_poc_list
+  server.registerTool(
+    'gks_poc_list',
+    {
+      description: 'List POCs from the local light-tier store.',
+      inputSchema: z
+        .object({
+          overdue: z.boolean().optional().describe('Filter to POCs past their deadline + non-terminal status'),
+          openOnly: z.boolean().optional().describe('Filter to status in {open, running}'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const pocStore = new PocStore({ root: opts.store.root })
+      let list = args.overdue ? await pocStore.listOverdue() : await pocStore.list()
+      if (args.openOnly) {
+        list = list.filter((p) => p.status === 'open' || p.status === 'running')
+      }
+      return jsonReply(list)
+    },
+  )
+
+  // gks_poc_close
+  server.registerTool(
+    'gks_poc_close',
+    {
+      description:
+        'Close a POC by declaring its terminal resolution (validated / invalidated / abandoned) and which downstream atoms it informs.',
+      inputSchema: z
+        .object({
+          id: z.string().describe('POC--<SLUG> ID'),
+          resolution: z
+            .enum(['validated', 'invalidated', 'abandoned'])
+            .describe('Terminal status — chosen based on whether acceptance_criteria held'),
+          feedsInto: z.array(z.string()).optional().describe('ADR-- IDs the result informs'),
+          produces: z.array(z.string()).optional().describe('BLUEPRINT-- / AUDIT-- IDs produced by the POC'),
+          notes: z.string().optional().describe('Result narrative — appended under ## Result'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const pocStore = new PocStore({ root: opts.store.root, audit: opts.store.audit })
+      const poc = await pocStore.close(args.id, {
+        resolution: args.resolution,
+        ...(args.feedsInto ? { feedsInto: args.feedsInto } : {}),
+        ...(args.produces ? { produces: args.produces } : {}),
+        ...(args.notes ? { notes: args.notes } : {}),
+      })
+      return jsonReply(poc)
     },
   )
 

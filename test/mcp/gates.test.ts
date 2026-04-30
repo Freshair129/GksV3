@@ -160,4 +160,65 @@ describe('gks-mcp-gates', () => {
     const list2 = unpack<any[]>(list2Reply as ToolReply)
     expect(list2).toHaveLength(0)
   })
+
+  it('gks_poc_open/list/close lifecycle', async () => {
+    // 1. Open
+    const openReply = await client.callTool({
+      name: 'gks_poc_open',
+      arguments: {
+        slug: 'mcp-test',
+        title: 'POC over MCP',
+        hypothesis: 'MCP transport carries POC tools end-to-end',
+        acceptanceCriteria: ['open returns POC--MCP-TEST', 'close sets resolution'],
+        deadline: '2099-01-01T00:00:00Z',
+      },
+    })
+    const p = unpack<{ id: string; status: string }>(openReply as ToolReply)
+    expect(p.id).toBe('POC--MCP-TEST')
+    expect(p.status).toBe('open')
+
+    // 2. List with openOnly filter
+    const listReply = await client.callTool({
+      name: 'gks_poc_list',
+      arguments: { openOnly: true },
+    })
+    const list = unpack<any[]>(listReply as ToolReply)
+    expect(list).toHaveLength(1)
+    expect(list[0].id).toBe(p.id)
+
+    // 3. Close with resolution=validated
+    const closeReply = await client.callTool({
+      name: 'gks_poc_close',
+      arguments: {
+        id: p.id,
+        resolution: 'validated',
+        feedsInto: ['ADR--MCP-WORKS'],
+      },
+    })
+    const closed = unpack<{ status: string; crosslinks: any; time_box: any }>(closeReply as ToolReply)
+    expect(closed.status).toBe('validated')
+    expect(closed.time_box.closed_at).toBeTruthy()
+    expect(closed.crosslinks.feeds_into).toEqual(['ADR--MCP-WORKS'])
+
+    // 4. listOpenOnly excludes closed atom
+    const list2Reply = await client.callTool({
+      name: 'gks_poc_list',
+      arguments: { openOnly: true },
+    })
+    expect(unpack<any[]>(list2Reply as ToolReply)).toHaveLength(0)
+  })
+
+  it('gks_poc_open rejects missing required fields (acceptanceCriteria empty)', async () => {
+    const reply = (await client.callTool({
+      name: 'gks_poc_open',
+      arguments: {
+        slug: 'bad',
+        title: 't',
+        hypothesis: 'h',
+        acceptanceCriteria: [],
+        deadline: '2099-01-01T00:00:00Z',
+      },
+    })) as ToolReply
+    expect(reply.isError).toBe(true)
+  })
 })

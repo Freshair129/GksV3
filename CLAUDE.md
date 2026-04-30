@@ -59,6 +59,24 @@ gks hotfix close <sha> --root=.                    # mark resolved after backfil
 After `valid_to` the pre-commit hook blocks further commits on the
 affected files until CONCEPT/ADR/BLUEPRINT are written and stable.
 
+### POC — time-boxed hypothesis test (light-tier, ADR--ADD-POC-PREFIX)
+
+For experiments with a falsifiable hypothesis and a hard deadline:
+
+```sh
+gks poc open <slug> --hypothesis="..." \
+  --acceptance-criterion="..." --acceptance-criterion="..." \
+  --deadline=<ISO> [--file=...] [--derives-from=CONCEPT--...] --root=.
+gks poc start POC--<SLUG> --root=.                # open → running
+gks poc list [--overdue] [--open] --root=.
+gks poc close POC--<SLUG> --resolution=validated|invalidated|abandoned \
+  [--feeds-into=ADR--...] [--produces=AUDIT--...] --root=.
+```
+
+After `time_box.deadline` with no closure, the pre-commit hook blocks
+commits touching the experiment's `linked_symbols` paths until the POC
+is closed (mirrors the HOTFIX gate).
+
 ---
 
 ## Branch convention
@@ -167,6 +185,8 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`src/memory/audit.ts`](./src/memory/audit.ts) | Append-only audit log |
 | [`src/hotfix/store.ts`](./src/hotfix/store.ts) | `HotfixStore` — open / list / listOverdue / close |
 | [`src/hotfix/types.ts`](./src/hotfix/types.ts) | `Hotfix` interface, `HOTFIX_BACKFILL_MS`, `isOverdue` |
+| [`src/poc/store.ts`](./src/poc/store.ts) | `PocStore` — open / start / close / list / listOverdue |
+| [`src/poc/types.ts`](./src/poc/types.ts) | `Poc` / `PocStatus`, `validatePoc`, `isOverdue`, `isClosed` |
 | [`src/issue/store.ts`](./src/issue/store.ts) | `IssueStore` — ISSUE-- lifecycle |
 | [`src/issue/types.ts`](./src/issue/types.ts) | `Issue` interface and status types |
 | [`src/scaffold/new-feature.ts`](./src/scaffold/new-feature.ts) | `scaffoldNewFeature()` — drops 4 inbound candidates |
@@ -187,6 +207,7 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`test/memory/`](./test/memory/) | Core retain / recall / reflect / inbound / promote |
 | [`test/memory/inbound-promote.test.ts`](./test/memory/inbound-promote.test.ts) | `InboundQueue.list / readById / promote` contract |
 | [`test/hotfix/`](./test/hotfix/) | `HotfixStore` open / list / overdue / close |
+| [`test/poc/`](./test/poc/) | `PocStore` open / start / close / list / overdue / roundtrip |
 | [`test/issue/`](./test/issue/) | `IssueStore` lifecycle |
 | [`test/mcp/`](./test/mcp/) | MCP server tools end-to-end (in-process transport) |
 | [`test/cli/`](./test/cli/) | CLI commands via subprocess |
@@ -224,7 +245,7 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 
 ---
 
-## MCP tools (13 total)
+## MCP tools (16 total)
 
 | Tool | Purpose |
 |------|---------|
@@ -240,4 +261,7 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 | `gks_hotfix_open` | Open a HOTFIX-- atom (48 h backfill window) |
 | `gks_hotfix_list` | List open / overdue hotfixes |
 | `gks_hotfix_close` | Mark a hotfix resolved |
+| `gks_poc_open` | Open a time-boxed POC (hypothesis + deadline) |
+| `gks_poc_list` | List POCs (overdue / openOnly filters) |
+| `gks_poc_close` | Close a POC (resolution: validated/invalidated/abandoned) |
 | `gks_recall_cross_namespace` | Admin: cross-tenant recall (gated) |

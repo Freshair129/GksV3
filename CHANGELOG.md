@@ -4,6 +4,36 @@ All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added — `POC--` prefix (`ADR--ADD-POC-PREFIX`)
+
+Time-boxed hypothesis-test atom — a falsifiable experiment with a
+required deadline and a `validated | invalidated | abandoned` triad
+that no existing atom carried. Mirrors the `HOTFIX--` light-tier
+pattern: direct write, schema-validated, lifecycle-enforced, pre-commit
+hook blocks on overdue.
+
+- Taxonomy: `'poc'` added to `AtomicType` literal; `KNOWLEDGE-TYPES.md`
+  Cluster 1 entry; starter template at `examples/atom-templates/POC.md`
+- Storage: `src/poc/` — `Poc`, `PocStatus`, `validatePoc`, `isOverdue`,
+  `isClosed`, `PocStore` (open / start / close / list / listOverdue)
+- Audit: `'poc_open'` / `'poc_close'` ops added to `AuditOp`
+- Inbound: `promote()` pass-through extended to preserve POC-specific
+  frontmatter (`hypothesis`, `acceptance_criteria`, `time_box`,
+  `resolution`)
+- CLI: `gks poc open / start / close / list / check`
+- MCP server: `gks_poc_open` / `gks_poc_list` / `gks_poc_close`
+  (tool count 13 → 16)
+- Pre-commit gate: `examples/drift-detection/hotfix-gate.sh` now runs
+  `gks hotfix check` *and* `gks poc check` — overdue atoms in either
+  light-tier store can block a commit
+- Tests: 17 new (`test/poc/`, `test/cli/gks-poc.test.ts`, `test/mcp/`
+  expansions) — total 338 passed | 3 skipped
+- Backfill atom: `POC--MEMORY-OS-ARCHITECTURE` retroactively records
+  the POC behind `examples/memory-os-architecture/` (status:
+  `validated`; informs ADR-008 + ADR-009)
+
 ## [3.5.5] — 2026-04-28
 
 The master-spec doc-to-code release. Folds three architectural decisions

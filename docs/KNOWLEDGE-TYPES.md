@@ -344,6 +344,29 @@ These have `MSP-` prefix and live in process-tracking storage, not in
         └── INSIGHT-- · FACT-- · RULE--
 ```
 
+## Rejected proposals
+
+These prefixes were considered and **rejected** because they overlapped
+with existing atoms or carried no genuinely new lifecycle. The taxonomy
+deliberately stays narrow per ADR-008 ("contract surface stays narrow")
+and ADR-012. Use the column on the right instead.
+
+| Considered | Use instead | Rationale |
+|---|---|---|
+| `CONCERN--` | `RISK--` (before) / `ISSUE--` (during) / `INC--` (after) / `GUARDRAIL--` / `POLICY--` | "concern" is a *state* of knowledge, not a *type*; phase-of-concern maps cleanly onto existing prefixes |
+| `NOTE--` | `INSIGHT--` (auto-derived) / inbound-queue review comment / a tiny `ADR--` | too vague — would become a dumping ground; observation atoms exist; review comments belong in queue, not `gks/` |
+| `MCP--` | `PROTOCOL--` (handshake) / `FEAT--` (per-tool) / `SKILL--` (agent capability) / `ENDPOINT--` (single op) | MCP is *transport*, not *knowledge* — its decisions live in `ADR--` (cf. ADR-007), per-tool docs in `FEAT--`, and contracts in `PROTOCOL--` |
+| `HYPOTHESIS-- / ASSUMPTION--` | `## Hypothesis` section in `CONCEPT--` / `## Assumptions` in `BLUEPRINT--` / `RISK--` (negative) / **`POC--`** (testable) | a hypothesis is a *state* (`epistemic_status: hypothesis → established → locked`), not a *type*; if it's testable with a deadline, that's `POC--` |
+| `SOLUTION--` | `ADR--` with `crosslinks.resolves: [INC--, ISSUE--]` | solutions are decisions in disguise; ADR carries the right shape (decision + alternatives + consequences) |
+| `TASK--` | (none — deprecated by ADR-015) | task state churns hourly; lives at the orchestrator / MSP / external tracker, not in `gks/` |
+
+If you're proposing a new prefix and it doesn't survive a row-by-row
+comparison against this table *plus* the ADR-008 anti-bloat test, write
+the proposal as a new `ADR--` (mirroring `ADR--ADD-POC-PREFIX` for
+shape) and keep the bar high: a new prefix is only worth its weight if
+it carries lifecycle, validation, or storage that no existing atom
+captures.
+
 ## See also
 
 - [`docs/adr/012-extended-taxonomy.md`](./adr/012-extended-taxonomy.md) — decision record

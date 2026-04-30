@@ -31,11 +31,10 @@ linked_symbols:
 crosslinks:
   derives_from: []                              # no canonical CONCEPT-- existed at the time
   produces: []                                  # informal — no AUDIT-- atom written
-  feeds_into:
-    - ADR--GKS-STORAGE-ENGINE-SCOPE             # ADR-008, accepted on the strength of this POC
-    - ADR--MSP-AS-ORCHESTRATOR                  # ADR-009, builds on the same layering
+  feeds_into: []                                # ADR-008 and ADR-009 are docs/adr/, not atoms; see References below
   references:
     - CONCEPT--MEMORY-STORE
+    - ADR--ADD-POC-PREFIX                        # the proposal this atom backs as worked example
 ---
 
 # POC — Memory OS can layer on GKS via MCP without storage-engine changes

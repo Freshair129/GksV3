@@ -1,22 +1,21 @@
 ---
-proposed_id: ADR--ADD-POC-PREFIX
-review_id: rev-manual-001
+id: ADR--ADD-POC-PREFIX
 phase: 2
 type: adr
-status: raw
-proposed_at: 2026-04-30T09:00:00Z
+status: stable
+vault_id: default
 title: Add POC-- prefix — time-boxed hypothesis-test atom (light tier)
-tags: [taxonomy, governance, poc, experiment, lifecycle]
-crosslinks:
-  references:
-    - ADR--EXTENDED-TAXONOMY        # 30-prefix taxonomy this extends
-    - ADR--DOC-TO-CODE-ENFORCEMENT  # P1→P6 flow that POC sits inside
-    - ADR--GKS-STORAGE-ENGINE-SCOPE # "contract surface stays narrow" test
-  resolves: []
-  superseded_by: []
+tags:
+  - taxonomy
+  - governance
+  - poc
+  - experiment
+  - lifecycle
+crosslinks: {"references":["ADR--EXTENDED-TAXONOMY","ADR--DOC-TO-CODE-ENFORCEMENT"],"resolves":[],"superseded_by":[]}
 linked_symbols:
-  - { file: src/memory/types.ts, fn: AtomicType }
-  - { file: docs/KNOWLEDGE-TYPES.md, fn: cluster-1-implementation-flow }
+  - {"file":"src/memory/types.ts","fn":"AtomicType"}
+  - {"file":"docs/KNOWLEDGE-TYPES.md","fn":"cluster-1-implementation-flow"}
+created_at: 2026-04-30T09:25:42.027Z
 ---
 
 # ADR — Add POC-- prefix (time-boxed hypothesis-test atom)

@@ -1,40 +1,26 @@
 ---
-proposed_id: POC--MEMORY-OS-ARCHITECTURE
-review_id: rev-manual-002
+id: POC--MEMORY-OS-ARCHITECTURE
 phase: 1
 type: poc
-status: raw
-proposed_at: 2026-04-30T09:00:00Z
+status: validated
+vault_id: default
 title: Memory OS can layer on GKS via MCP without storage-engine changes
-hypothesis: |
-  A paradigm-agnostic Memory OS (kernel) can be implemented above GKS using
-  only the public retain / recall / reflect contract, with EVA-specific
-  cognitive concerns (RI levels, RMS affect, Session→Core→Sphere cascade)
-  living in a separate plugin module. GKS itself requires no Memory-OS-aware
-  changes. If true, this validates the layering proposed in ADR-008.
+crosslinks: {"derives_from":[],"produces":[],"feeds_into":[],"references":["CONCEPT--MEMORY-STORE","ADR--ADD-POC-PREFIX"]}
+linked_symbols:
+  - {"file":"examples/memory-os-architecture/","fn":"README"}
+  - {"file":"examples/memory-os-architecture/core/memory_os.py","fn":"MemoryOS"}
+  - {"file":"examples/memory-os-architecture/plugins/eva.py","fn":"EvaPlugin"}
+  - {"file":"examples/memory-os-architecture/storage/","fn":"JsonFile"}
+  - {"file":"examples/memory-os-architecture/storage/","fn":"GksMcp"}
+hypothesis: "A paradigm-agnostic Memory OS (kernel) can be implemented above GKS using\nonly the public retain / recall / reflect contract, with EVA-specific\ncognitive concerns (RI levels, RMS affect, Session→Core→Sphere cascade)\nliving in a separate plugin module. GKS itself requires no Memory-OS-aware\nchanges. If true, this validates the layering proposed in ADR-008.\n"
 acceptance_criteria:
   - Memory OS kernel runs end-to-end against gks-mcp-server via stdio
   - EVA-specific behaviour (affect / RI / cascade) lives only in the plugin module
   - GKS source has zero Memory-OS-specific imports or hooks
   - Storage adapter swap (`JsonFile` ↔ `Gks`-via-MCP) requires no kernel changes
   - Reference implementation is reproducible by a third party from README
-time_box:
-  opened_at: 2026-04-15T00:00:00Z
-  deadline: 2026-04-26T00:00:00Z
-  closed_at: 2026-04-26T00:00:00Z
-linked_symbols:
-  - { file: examples/memory-os-architecture/, fn: README }
-  - { file: examples/memory-os-architecture/core/memory_os.py, fn: MemoryOS }
-  - { file: examples/memory-os-architecture/plugins/eva.py, fn: EvaPlugin }
-  - { file: examples/memory-os-architecture/storage/, fn: JsonFile }
-  - { file: examples/memory-os-architecture/storage/, fn: GksMcp }
-crosslinks:
-  derives_from: []                              # no canonical CONCEPT-- existed at the time
-  produces: []                                  # informal — no AUDIT-- atom written
-  feeds_into: []                                # ADR-008 and ADR-009 are docs/adr/, not atoms; see References below
-  references:
-    - CONCEPT--MEMORY-STORE
-    - ADR--ADD-POC-PREFIX                        # the proposal this atom backs as worked example
+time_box: {"opened_at":"2026-04-15T00:00:00Z","deadline":"2026-04-26T00:00:00Z","closed_at":"2026-04-26T00:00:00Z"}
+created_at: 2026-04-30T09:40:39.095Z
 ---
 
 # POC — Memory OS can layer on GKS via MCP without storage-engine changes

@@ -26,6 +26,7 @@ the answer is here. Templates for each prefix live in
 | `PARAMS--` | Implementation | Constants / business config |
 | `FRAME--` | Implementation | Code standards / framework rules |
 | `BLUEPRINT--` | Implementation | YAML implementation plan |
+| `POC--` | Implementation | Time-boxed hypothesis-test atom (light-tier — ADR--ADD-POC-PREFIX) |
 | `AUDIT--` | Implementation | Test results / quality report |
 | `HOTFIX--` | Ops | Hotfix escape-hatch atom (48h backfill window — ADR-014) |
 
@@ -128,6 +129,25 @@ where most contributions go.
 - **Don't use for:** prose specs — those are `FEAT--`.
 - **Phase:** P3.
 - **Required fields:** `metadata`, `architectural_pattern`, `data_logic`, `geography`, `api_contracts`, `verification_plan`.
+
+### `POC--` · time-boxed hypothesis-test atom
+- **Use for:** a falsifiable experiment with a deadline — proving (or
+  disproving) an assumption before it locks in as `ADR--` / `BLUEPRINT--`.
+- **Don't use for:** the resulting decision (use `ADR--`) or the
+  verification *result* of an already-decided plan (use `AUDIT--`).
+- **Phase:** P1 (between `CONCEPT--` and `BLUEPRINT--`).
+- **Tier:** **light** — direct write OK; schema-validated; lifecycle-enforced.
+- **Status values:** `open` → `running` → terminal: `validated` /
+  `invalidated` / `abandoned`.
+- **Required fields:** `hypothesis` (one paragraph, falsifiable),
+  `acceptance_criteria` (≥1 measurable check), `time_box.deadline`
+  (ISO timestamp).
+- **Crosslinks:** `derives_from: [CONCEPT--…]`, `produces:
+  [BLUEPRINT--…, AUDIT--…]`, `feeds_into: [ADR--…]` (filled at close).
+- **Overdue policy:** after `time_box.deadline` with non-terminal status,
+  the pre-commit hook blocks commits touching `linked_symbols` paths
+  (mirrors `HOTFIX--` 48 h window — ADR-014). See
+  `ADR--ADD-POC-PREFIX` for full lifecycle rationale.
 
 ### Microtasks (`T*.task.yaml`) — **not atoms**
 - **Why:** task state churns hourly (assigned / in-progress / blocked /

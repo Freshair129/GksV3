@@ -174,7 +174,18 @@ export class InboundQueue {
     }
     if (fm['title']) promoted['title'] = fm['title']
     else if (titleFromBody) promoted['title'] = titleFromBody
-    for (const k of ['tags', 'crosslinks', 'linked_symbols', 'geography', 'created_at']) {
+    for (const k of [
+      'tags',
+      'crosslinks',
+      'linked_symbols',
+      'geography',
+      'created_at',
+      // POC-- specific (ADR--ADD-POC-PREFIX)
+      'hypothesis',
+      'acceptance_criteria',
+      'time_box',
+      'resolution',
+    ]) {
       if (fm[k] !== undefined) promoted[k] = fm[k]
     }
     if (!promoted['created_at']) promoted['created_at'] = new Date().toISOString()

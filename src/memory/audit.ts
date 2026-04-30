@@ -41,6 +41,7 @@ export type AuditOp =
   | 'hotfix_open'
   | 'hotfix_close'
   | 'poc_open'
+  | 'poc_start'
   | 'poc_close'
 
 export interface AuditEvent {

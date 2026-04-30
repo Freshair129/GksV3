@@ -168,7 +168,12 @@ export class PocStore {
   }
 
   async start(id: string): Promise<Poc> {
-    return this.transition(id, 'running')
+    const poc = await this.transition(id, 'running')
+    if (this.audit) {
+      await this.audit.emit({ op: 'poc_start', doc_id: id })
+    }
+    log.info('poc started', { id })
+    return poc
   }
 
   async close(id: string, args: ClosePocArgs): Promise<Poc> {

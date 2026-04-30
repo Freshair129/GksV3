@@ -177,7 +177,15 @@ describe('gks-mcp-gates', () => {
     expect(p.id).toBe('POC--MCP-TEST')
     expect(p.status).toBe('open')
 
-    // 2. List with openOnly filter
+    // 2. Start (open → running)
+    const startReply = await client.callTool({
+      name: 'gks_poc_start',
+      arguments: { id: p.id },
+    })
+    const started = unpack<{ status: string }>(startReply as ToolReply)
+    expect(started.status).toBe('running')
+
+    // 3. List with openOnly filter (running counts as active)
     const listReply = await client.callTool({
       name: 'gks_poc_list',
       arguments: { openOnly: true },
@@ -185,8 +193,9 @@ describe('gks-mcp-gates', () => {
     const list = unpack<any[]>(listReply as ToolReply)
     expect(list).toHaveLength(1)
     expect(list[0].id).toBe(p.id)
+    expect(list[0].status).toBe('running')
 
-    // 3. Close with resolution=validated
+    // 4. Close with resolution=validated
     const closeReply = await client.callTool({
       name: 'gks_poc_close',
       arguments: {
@@ -200,7 +209,7 @@ describe('gks-mcp-gates', () => {
     expect(closed.time_box.closed_at).toBeTruthy()
     expect(closed.crosslinks.feeds_into).toEqual(['ADR--MCP-WORKS'])
 
-    // 4. listOpenOnly excludes closed atom
+    // 5. listOpenOnly excludes closed atom
     const list2Reply = await client.callTool({
       name: 'gks_poc_list',
       arguments: { openOnly: true },

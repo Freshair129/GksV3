@@ -47,14 +47,18 @@ import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import {
+  CommunityCache,
   MemoryStore,
   createOpenAICompatibleClient,
   createLlmTldrGenerator,
   heuristicTldrGenerator,
   mockEmbedder,
+  summarizeCommunity,
+  type CommunityAtomic,
   type TldrGenerator,
 } from '../src/memory/index.js'
 import { retain, recall } from '../src/memory/api.js'
+import type { AtomicEntry, AtomicNote } from '../src/memory/types.js'
 
 interface CliFlags {
   useOllama: boolean
@@ -195,6 +199,80 @@ async function main(): Promise<void> {
   log(2, '1. recall(query, { snippetMaxChars: 0 })  → cheap metadata-only hits')
   log(2, '2. agent picks the relevant id            → rank by score + title')
   log(2, '3. lookup(id)                              → load full body only when needed')
+
+  // ── 6. Higher-order summary across a small atom community ───────────
+  // Demo of summarizeCommunity (GraphRAG-style synthesis). For brevity,
+  // we wire an in-memory CommunityAtomic stub here rather than promoting
+  // atoms into gks/ + rebuilding the index. In a real codebase you
+  // call store.summarizeCommunity({...}) which uses the indexed
+  // gks/ tree directly.
+  log(1, 'community summary (GraphRAG-style synthesis over a crosslinked chain) ...')
+  const stubAtoms: AtomicEntry[] = [
+    {
+      id: 'CONCEPT--DEMO',
+      phase: 1,
+      type: 'concept',
+      status: 'stable',
+      vault_id: 'default',
+      path: 'concept/CONCEPT--DEMO.md',
+      title: 'Demo concept',
+      summary_tldr: 'The demo concept introduces the framing for this quickstart chain.',
+    },
+    {
+      id: 'ADR--DEMO',
+      phase: 2,
+      type: 'adr',
+      status: 'stable',
+      vault_id: 'default',
+      path: 'adr/ADR--DEMO.md',
+      title: 'Demo ADR',
+      summary_tldr: 'The ADR records the decision and pins the architectural shape.',
+      crosslinks: { parent_concept: ['CONCEPT--DEMO'] },
+    },
+    {
+      id: 'FEAT--DEMO',
+      phase: 2,
+      type: 'feat',
+      status: 'stable',
+      vault_id: 'default',
+      path: 'feat/FEAT--DEMO.md',
+      title: 'Demo feature',
+      summary_tldr: 'The feature delivers the user-facing behaviour described in the ADR.',
+      crosslinks: { parent_adr: ['ADR--DEMO'] },
+    },
+  ]
+  const byId = new Map(stubAtoms.map((e) => [e.id, e]))
+  const stubAtomic: CommunityAtomic = {
+    getEntry: (id) => byId.get(id),
+    async lookup(id) {
+      const e = byId.get(id)
+      if (!e) return null
+      const note: AtomicNote = { ...e, body: e.summary_tldr ?? '' }
+      return note
+    },
+  }
+  const cache = new CommunityCache()
+
+  const community = await summarizeCommunity(
+    { atomic: stubAtomic, cache },
+    {
+      seed: 'FEAT--DEMO',
+      hops: 2, // FEAT → ADR → CONCEPT
+      generator: tldrGenerator,
+    },
+  )
+  log(2, `members: ${community.members.join(', ')}`)
+  log(2, `generator: ${community.generator}`)
+  log(2, `cached: ${community.cached}, truncated: ${community.truncated}`)
+  log(2, `input tokens (est.): ~${community.inputTokensEstimate}`)
+  log(2, `synthesis (first 200 chars): "${truncate(community.summary, 200)}"`)
+
+  // Second call with identical args hits the LRU cache.
+  const cached = await summarizeCommunity(
+    { atomic: stubAtomic, cache },
+    { seed: 'FEAT--DEMO', hops: 2, generator: tldrGenerator },
+  )
+  log(2, `cache hit on identical args: cached=${cached.cached}`)
 
   // ── cleanup ───────────────────────────────────────────────────────────
   if (args.keep) {

@@ -107,6 +107,9 @@ async function main(): Promise<void> {
     case 'tldr':
       await cmdTldr(subArgv)
       break
+    case 'community':
+      await cmdCommunity(subArgv)
+      break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
       printUsage()
@@ -1205,6 +1208,109 @@ async function cmdTldrRegenerate(argv: string[]): Promise<void> {
   if (!result.ok) process.exit(1)
 }
 
+// ─── community (higher-order summaries over atom communities) ─────────────
+
+async function cmdCommunity(argv: string[]): Promise<void> {
+  const subcmd = argv[0]
+  const rest = argv.slice(1)
+  if (!subcmd) {
+    console.error('gks community: missing subcommand. Try: summarize')
+    process.exit(1)
+  }
+  switch (subcmd) {
+    case 'summarize':
+    case 'summarise':
+      await cmdCommunitySummarize(rest)
+      break
+    default:
+      console.error(`gks community: unknown subcommand '${subcmd}'`)
+      process.exit(1)
+  }
+}
+
+/**
+ * `gks community summarize <seed> [--hops=N] [--include-bodies]
+ *                                  [--max-members=N] [--edges=a,b,c]`
+ *
+ * Walks structural crosslinks from a seed atom and synthesises a single
+ * narrative over the resulting community. Generator selection mirrors
+ * `inbound promote --generate-tldr` and `tldr regenerate`:
+ *   - GKS_LLM_BASE_URL / GKS_LLM_API_KEY → OpenAI-compatible local SLM
+ *   - ANTHROPIC_API_KEY                  → Anthropic
+ *   - else                                → heuristic (deterministic bullets)
+ *
+ * Implements FEAT--COMMUNITY-SUMMARIES from the user-facing CLI side.
+ */
+async function cmdCommunitySummarize(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      hops: { type: 'string' },
+      'include-bodies': { type: 'boolean' },
+      'max-members': { type: 'string' },
+      edges: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const seedArgs = positionals
+  if (seedArgs.length === 0) {
+    console.error('gks community summarize: pass at least one atomic id')
+    process.exit(1)
+  }
+  const hopsRaw = values['hops']
+  const hops = typeof hopsRaw === 'string' ? Number.parseInt(hopsRaw, 10) : undefined
+  const maxMembersRaw = values['max-members']
+  const maxMembers =
+    typeof maxMembersRaw === 'string' ? Number.parseInt(maxMembersRaw, 10) : undefined
+  const edgesRaw = values['edges']
+  const edges =
+    typeof edgesRaw === 'string'
+      ? edgesRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined
+
+  // Generator selection — same precedence as `tldr regenerate`.
+  const { heuristicTldrGenerator, createLlmTldrGenerator } = await import(
+    '../src/memory/tldr.js'
+  )
+  let generator: import('../src/memory/tldr.js').TldrGenerator
+  if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+    const { createOpenAICompatibleClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createOpenAICompatibleClient() })
+  } else if (process.env['ANTHROPIC_API_KEY']) {
+    const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createAnthropicClient() })
+  } else {
+    generator = heuristicTldrGenerator()
+  }
+
+  const store = await openStore(flags)
+  const result = await store.summarizeCommunity({
+    seed: seedArgs.length === 1 ? seedArgs[0]! : seedArgs,
+    ...(hops !== undefined ? { hops } : {}),
+    ...(maxMembers !== undefined ? { maxMembers } : {}),
+    ...(edges ? { edges } : {}),
+    includeBodies: values['include-bodies'] === true,
+    generator,
+  })
+
+  emit(flags, result, () => {
+    console.log(`community summary (${result.members.length} member(s)${result.truncated ? ', truncated' : ''})`)
+    console.log(`  generator:           ${result.generator}`)
+    console.log(`  input tokens (est.): ~${result.inputTokensEstimate}`)
+    console.log('')
+    console.log('  members (phase asc, id asc):')
+    for (const m of result.members) console.log(`    • ${m}`)
+    console.log('')
+    console.log('  ── synthesis ──')
+    for (const line of result.summary.split('\n')) console.log(`  ${line}`)
+  })
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -1295,7 +1401,11 @@ Subcommands
   hotfix close HOTFIX--XXXXXXX --resolved-by=ADR-... [--resolved-by=BLUEPRINT-...]
   hotfix check --file=src/x.ts [--file=src/y.ts]   pre-commit gate; exit-1 if overdue
   verify-flow ID                              walk crosslinks; exit-1 if any node not stable
-  validate [--links]                          read-only crosslink integrity check
+  validate [--links] [--tldr-staleness]       read-only crosslink + TLDR integrity check
+  tldr regenerate ID... [--all-stale] [--dry-run]
+                                              regenerate summary_tldr in atom frontmatter
+  community summarize SEED [--hops=N] [--include-bodies] [--max-members=N] [--edges=a,b,c]
+                                              synthesize a narrative across a crosslink neighbourhood
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

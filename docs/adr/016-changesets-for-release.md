@@ -1,6 +1,6 @@
 # ADR 016 — Changesets for release management (Phase 6 R.1)
 
-- **Status:** accepted (scaffolded; not yet wired into CI)
+- **Status:** accepted (activated 2026-04-30 follow-up)
 - **Date:** 2026-04-30
 - **Deciders:** core
 - **Context tag:** release, tooling, phase-6, changelog
@@ -34,24 +34,35 @@ Three release-tooling shapes were on the table:
 
 ## Decision
 
-Adopt **Changesets** for Phase 6 R.1, but **scaffold without
-activating yet.** Concretely:
+Adopt **Changesets** for Phase 6 R.1.
 
-1. `.changeset/config.json` and `.changeset/README.md` land in this
-   PR, baseBranch `main`, public access.
-2. `@changesets/cli` is **not** added to `devDependencies` here. The
-   maintainer activates the tool with one `npm install --save-dev
-   @changesets/cli` when ready to commit to the cadence.
-3. No CI workflow file (`.github/workflows/release.yml`) is shipped
-   yet. Authoring a release workflow couples to:
-   - which branch is the release source (`main`? a `release/*` line?)
-   - whether release commits should be auto-merged or open as PRs
-   - npm publish credentials (org-level secret)
-   These are operational decisions the maintainer should make, not
-   tooling decisions to bake in upfront.
+**Initial decision (2026-04-30):** scaffold without activating —
+`.changeset/config.json` + `.changeset/README.md`, no devDep, no CI
+workflow. Rationale: branch-source / publish-trigger / npm
+credentials are maintainer-shaped operational decisions.
 
-The scaffolding makes it a one-command flip-the-switch when those
-operational decisions are made.
+**Activation follow-up (same day):** the operational decisions
+turned out to be answerable in a single ADR, so we activated
+end-to-end:
+
+1. `@changesets/cli` is now a `devDependency` (`^2.31.0`).
+2. `.github/workflows/release.yml` runs on push to `main`. Uses
+   `changesets/action@v1` with `version: npx changeset version` and
+   `publish: npx changeset publish`. Concurrency-grouped by ref so
+   we never publish twice in parallel.
+3. Branch source is `main` (only release line); no `release/*` —
+   single trunk per `claude/<feature>` branch convention.
+4. Release flow: pending `.changeset/*.md` → bot opens "Version
+   Packages" PR → merging that PR triggers the same workflow which
+   then publishes.
+5. `NPM_TOKEN` is the only blocking secret. The workflow runs
+   harmlessly without it (opens the version PR; publish step is the
+   only one that reads it).
+
+Two starter changesets land in the same activation PR:
+- `round-1-poc-prefix.md` (minor) — covers PR #19–22 user-visible work
+- `round-2-changesets-activated.md` (patch) — meta-changeset for the
+  activation itself + maintainer setup steps
 
 ## Consequences
 

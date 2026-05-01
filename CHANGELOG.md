@@ -6,6 +6,82 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — MCP `gks_issue_*` tools (FEAT--ISSUE-TRACKER follow-up)
+
+Six MCP tools mirroring the issue CLI lifecycle: `gks_issue_new`,
+`gks_issue_list`, `gks_issue_show`, `gks_issue_comment`,
+`gks_issue_status`, `gks_issue_close`. Closes the "MCP issue tools
+deferred pending demand" line item from the original FEAT atom.
+
+`gks_issue_assign` and `gks_issue_dashboard` intentionally remain
+CLI-only — they are formatting / thin-wrapper concerns, not essential
+agent operations.
+
+### Added — `gks poc promote-to-adr` scaffolder
+
+`gks poc promote-to-adr POC--<id>` reads a closed POC (validated /
+invalidated / abandoned) and scaffolds an ADR draft into the inbound
+queue with hypothesis quoted into Context, acceptance criteria carried
+into Consequences, and a verdict-aware Decision template. Refuses to
+scaffold non-terminal POCs. The standard inbound human-review gate
+still applies — this just removes blank-page friction.
+
+Lives in `src/poc/promote.ts`; tests in `test/poc/promote.test.ts`
+(4 cases covering refusal, validated path, verdict text per
+resolution, slug/title overrides).
+
+### Added — `--timing` flag on lifecycle gates
+
+`gks hotfix check --timing` and `gks poc check --timing` now print
+per-gate elapsed time. The pre-commit hook
+(`examples/drift-detection/hotfix-gate.sh`) honours
+`GKS_GATE_TIMING=1` to enable timing on both gates without code
+changes. Used by `POC--POC-OVERDUE-CI-INTEGRATION` to verify the
+< 500ms p95 acceptance criterion.
+
+### Added — Changesets scaffolding (Phase 6 R.1)
+
+`.changeset/config.json` and `.changeset/README.md` land per
+`docs/adr/016-changesets-for-release.md`. The `@changesets/cli` itself
+is **not yet installed** as a devDependency — activation is a
+maintainer decision (release cadence, npm publish trigger, branch
+protection). One command flips the switch when ready.
+
+### Changed — doc-vs-code drift fixes
+
+Several stale numerical claims aligned with reality:
+
+- `README.md` MCP tool count `15 → 23`; atom count `11 → 13`; tests
+  badge + `npm test` comment `321/237 → 344`
+- `CLAUDE.md` MCP tools `(16 total) → (23 total)` with
+  `gks_poc_start` row + 6 new `gks_issue_*` rows; tests `321 → 344`;
+  source map MCP server "13 tools" → "23 tools"
+- `docs/TECHNICAL-OVERVIEW.md` "8 tools" → "23 tools" with full
+  table re-listing
+- `docs/ULTRAPLAN.md` Phase 6 R.1: current version `v3.5.4 → v3.5.5`,
+  changesets activation status documented
+- `gks/feat/FEAT--POC-LIGHT-TIER.md` MCP surface `(3 tools) → (4
+  tools)` with `gks_poc_start`; CLI surface 5 → 6 with
+  `promote-to-adr`; `linked_symbols` adds `src/poc/promote.ts`;
+  "Recently shipped" section captures the auto-promotion graduation
+- `gks/feat/FEAT--ISSUE-TRACKER.md` adds "MCP surface (6 tools)"
+  section + "Recently shipped" note + `linked_symbols` adds
+  `src/mcp-server/index.ts`
+
+### Changed — `src/memory/consolidator.ts` documentation
+
+The "Phase 1 stub" header in `consolidator.ts` was misleading — the
+heuristic extractor is the deterministic *default*, not a placeholder
+waiting for a replacement. Doc clarified to point at
+`consolidator-llm.ts` as the production swap-in.
+
+### Changed — `src/memory/obsidian-mcp.ts` documentation
+
+The "stdio MCP transport added in Phase 2" header was stale; the
+stdio transport shipped as `obsidian-mcp-stdio.ts` (B.4 in the
+original Phase-2B plan). Doc updated to describe both files'
+present-day roles.
+
 ### Added — `POC--` prefix (`ADR--ADD-POC-PREFIX`)
 
 Time-boxed hypothesis-test atom — a falsifiable experiment with a

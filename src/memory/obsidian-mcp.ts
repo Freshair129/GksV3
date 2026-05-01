@@ -11,10 +11,11 @@
  *     - resolve [[wikilinks]]
  *   caching.ttl_seconds: 120
  *
- * Phase 1 scope: adapter interface + a REST-plugin client + a deterministic
- * mock. The stdio MCP transport itself is added in Phase 2 when we wire in
- * the official MCP SDK; until then, REST gets us the same four capabilities
- * with zero deps.
+ * Adapter interface + REST-plugin client + a deterministic mock. The
+ * stdio MCP transport is shipped separately as `obsidian-mcp-stdio.ts`
+ * (B.4 of the original Phase-2B plan); keeping the REST adapter here in
+ * its own file means users who only run the Local REST API plugin don't
+ * pay the MCP SDK install cost.
  *
  * Design
  *   - ObsidianAdapter: the minimum surface the MemoryStore needs. Any client

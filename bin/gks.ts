@@ -41,6 +41,7 @@ import { HotfixStore } from '../src/hotfix/store.js'
 import { isOverdue } from '../src/hotfix/types.js'
 import { PocStore } from '../src/poc/store.js'
 import { isOverdue as isPocOverdue, type PocStatus } from '../src/poc/types.js'
+import { promotePocToAdr } from '../src/poc/promote.js'
 import { verifyFlow, formatVerifyFlowResult } from '../src/memory/verify-flow.js'
 import { validateLinks, formatValidateLinksResult } from '../src/memory/validate-links.js'
 import { scaffoldNewFeature } from '../src/scaffold/new-feature.js'
@@ -763,10 +764,11 @@ async function cmdHotfixClose(argv: string[]): Promise<void> {
 async function cmdHotfixCheck(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
-    options: { ...GLOBAL_OPTIONS, file: { type: 'string', multiple: true } },
+    options: { ...GLOBAL_OPTIONS, file: { type: 'string', multiple: true }, timing: { type: 'boolean' } },
   })
   const flags = readGlobals(values)
   const files = new Set(((values['file'] as string[] | undefined) ?? []).map((f) => f.trim()).filter(Boolean))
+  const tStart = process.hrtime.bigint()
   const store = openHotfixStore(flags)
   const overdue = await store.listOverdue()
   const blocking = overdue.filter((h) => {
@@ -774,16 +776,23 @@ async function cmdHotfixCheck(argv: string[]): Promise<void> {
     const touched = h.linked_symbols?.map((s) => s.file) ?? []
     return touched.some((f) => files.has(f))
   })
+  const elapsedMs = Number(process.hrtime.bigint() - tStart) / 1_000_000
   if (blocking.length === 0) {
-    if (!flags.json) console.log('hotfix gate: clear')
+    if (!flags.json) {
+      console.log('hotfix gate: clear')
+      if (values['timing']) console.log(`  elapsed: ${elapsedMs.toFixed(1)}ms`)
+    } else if (values['timing']) {
+      console.log(JSON.stringify({ status: 'clear', elapsedMs }))
+    }
     return
   }
-  emit(flags, { blocking }, () => {
+  emit(flags, { blocking, ...(values['timing'] ? { elapsedMs } : {}) }, () => {
     console.error(`hotfix gate: ${blocking.length} overdue hotfix(es) block this commit`)
     for (const h of blocking) {
       console.error(`  ${h.id}  valid_to=${h.valid_to}  ${h.title}`)
       console.error(`    backfill missing — write CONCEPT/ADR/BLUEPRINT then \`gks hotfix close ${h.id} --resolved-by=...\``)
     }
+    if (values['timing']) console.error(`  elapsed: ${elapsedMs.toFixed(1)}ms`)
   })
   process.exit(1)
 }
@@ -793,7 +802,7 @@ async function cmdHotfixCheck(argv: string[]): Promise<void> {
 async function cmdPoc(argv: string[]): Promise<void> {
   const sub = argv[0]
   if (!sub) {
-    console.error('gks poc: missing subcommand. Try: open | start | close | list | check')
+    console.error('gks poc: missing subcommand. Try: open | start | close | list | check | promote-to-adr')
     process.exit(1)
   }
   const rest = argv.slice(1)
@@ -803,6 +812,7 @@ async function cmdPoc(argv: string[]): Promise<void> {
     case 'close': await cmdPocClose(rest); break
     case 'list': await cmdPocList(rest); break
     case 'check': await cmdPocCheck(rest); break
+    case 'promote-to-adr': await cmdPocPromoteToAdr(rest); break
     default:
       console.error(`gks poc: unknown subcommand '${sub}'`)
       process.exit(1)
@@ -954,10 +964,11 @@ async function cmdPocList(argv: string[]): Promise<void> {
 async function cmdPocCheck(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
-    options: { ...GLOBAL_OPTIONS, file: { type: 'string', multiple: true } },
+    options: { ...GLOBAL_OPTIONS, file: { type: 'string', multiple: true }, timing: { type: 'boolean' } },
   })
   const flags = readGlobals(values)
   const files = new Set(((values['file'] as string[] | undefined) ?? []).map((f) => f.trim()).filter(Boolean))
+  const tStart = process.hrtime.bigint()
   const store = openPocStore(flags)
   const overdue = await store.listOverdue()
   const blocking = overdue.filter((p) => {
@@ -965,18 +976,67 @@ async function cmdPocCheck(argv: string[]): Promise<void> {
     const touched = p.linked_symbols?.map((s) => s.file) ?? []
     return touched.some((f) => files.has(f))
   })
+  const elapsedMs = Number(process.hrtime.bigint() - tStart) / 1_000_000
   if (blocking.length === 0) {
-    if (!flags.json) console.log('poc gate: clear')
+    if (!flags.json) {
+      console.log('poc gate: clear')
+      if (values['timing']) console.log(`  elapsed: ${elapsedMs.toFixed(1)}ms`)
+    } else if (values['timing']) {
+      console.log(JSON.stringify({ status: 'clear', elapsedMs }))
+    }
     return
   }
-  emit(flags, { blocking }, () => {
+  emit(flags, { blocking, ...(values['timing'] ? { elapsedMs } : {}) }, () => {
     console.error(`poc gate: ${blocking.length} overdue POC(s) block this commit`)
     for (const p of blocking) {
       console.error(`  ${p.id}  deadline=${p.time_box.deadline}  ${p.title}`)
       console.error(`    decide outcome — \`gks poc close ${p.id} --resolution=validated|invalidated|abandoned\``)
     }
+    if (values['timing']) console.error(`  elapsed: ${elapsedMs.toFixed(1)}ms`)
   })
   process.exit(1)
+}
+
+/**
+ * `gks poc promote-to-adr POC--<id>` — scaffold an ADR draft into the
+ * inbound queue from a closed POC. The POC must be in a terminal status
+ * (validated / invalidated / abandoned) — non-terminal POCs have no
+ * decision to lift yet. Reduces blank-page friction; does NOT bypass
+ * the inbound review gate.
+ */
+async function cmdPocPromoteToAdr(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      slug: { type: 'string' },
+      title: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const id = positionals[0]
+  if (!id) {
+    console.error('gks poc promote-to-adr: missing POC-- id')
+    process.exit(1)
+  }
+  const pocDir = join(flags.root, 'gks', 'poc')
+  const store = await openStore(flags)
+  const result = await promotePocToAdr({
+    pocId: id,
+    pocDir,
+    inbound: store.inbound,
+    options: {
+      ...(values['slug'] ? { adrSlug: values['slug'] as string } : {}),
+      ...(values['title'] ? { title: values['title'] as string } : {}),
+    },
+  })
+  emit(flags, result, () => {
+    console.log(`✓ scaffolded ${result.proposedId}`)
+    console.log(`  source POC: ${id}`)
+    console.log(`  inbound:    ${result.inboundPath}`)
+    console.log(`  next:       gks inbound show ${result.proposedId}; edit; gks inbound promote ${result.proposedId}`)
+  })
 }
 
 // ─── chain walker (ADR-014 item 3) ─────────────────────────────────────────
@@ -1273,6 +1333,9 @@ Subcommands
                        [--feeds-into=ADR--...] [--produces=AUDIT--...] [--notes="..."]
   poc list [--overdue] [--open]
   poc check --file=src/x.ts [--file=src/y.ts]      pre-commit gate; exit-1 if overdue
+  poc promote-to-adr POC--SLUG [--slug=...] [--title="..."]
+                                                   scaffold an ADR draft into inbound from
+                                                   a closed (validated/invalidated/abandoned) POC
   verify-flow ID                              walk crosslinks; exit-1 if any node not stable
   validate [--links]                          read-only crosslink integrity check
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]

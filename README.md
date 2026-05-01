@@ -5,7 +5,7 @@
 > three verbs (Retain, Recall, Reflect), with multi-tenancy, bi-temporal
 > versioning, observability, and pluggable backends.
 
-[![tests](https://img.shields.io/badge/tests-321%20passing-brightgreen)](#tests)
+[![tests](https://img.shields.io/badge/tests-344%20passing-brightgreen)](#tests)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
@@ -119,12 +119,16 @@ custom agents) can use the memory fabric over stdio:
 }
 ```
 
-15 tools exposed: `gks_retain`, `gks_recall`, `gks_lookup`,
-`gks_propose_inbound`, `gks_reflect`, `gks_verify_flow`, `gks_validate_links`,
-`gks_new_feature`, `gks_hotfix_open`, `gks_hotfix_list`, `gks_hotfix_close`,
-`gks_poc_open`, `gks_poc_list`, `gks_poc_close`, plus an admin
-`gks_recall_cross_namespace` (gated). See
-[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#layer-dependency).
+23 tools exposed:
+
+- **Core memory:** `gks_retain`, `gks_recall`, `gks_lookup`, `gks_lookup_by_symbol`, `gks_propose_inbound`, `gks_reflect`
+- **Doc-to-code gates:** `gks_verify_flow`, `gks_validate_links`, `gks_new_feature`
+- **Hotfix lifecycle:** `gks_hotfix_open`, `gks_hotfix_list`, `gks_hotfix_close`
+- **POC lifecycle:** `gks_poc_open`, `gks_poc_start`, `gks_poc_list`, `gks_poc_close`
+- **Issue tracker:** `gks_issue_new`, `gks_issue_list`, `gks_issue_show`, `gks_issue_comment`, `gks_issue_status`, `gks_issue_close`
+- **Admin (gated):** `gks_recall_cross_namespace`
+
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md#layer-dependency).
 
 ### Pairing with a code-structure layer (e.g. GitNexus)
 
@@ -243,7 +247,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 - [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) — OTel setup + dashboards
 - [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) — schema versioning policy
 - [`docs/adr/`](./docs/adr/) — architecture decision records (15 entries)
-- [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 11 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, the extended taxonomy, the doc-to-code enforcement model, the task-tracking boundary (ADR-015), and the time-boxed POC pattern (ADR--ADD-POC-PREFIX + backfill `POC--MEMORY-OS-ARCHITECTURE`). Try it:
+- [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 13 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, the extended taxonomy, the doc-to-code enforcement model, the task-tracking boundary (ADR-015), the time-boxed POC pattern (ADR--ADD-POC-PREFIX + FEAT--POC-LIGHT-TIER), and the first POC catalogue (POC--MEMORY-OS-ARCHITECTURE backfill, POC--POC-OVERDUE-CI-INTEGRATION running). Try it:
   ```sh
   npx tsx bin/gks.ts lookup ADR--REVERSE-CITATION-LOOKUP --root=.
   npx tsx bin/gks.ts lookup-by-symbol src/memory/index.ts:lookupBySymbol --root=. --json
@@ -280,7 +284,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 ```sh
 npm install
 npm run typecheck
-npm test                    # 237 tests in CI
+npm test                    # 344 tests in CI
 npm run quickstart           # end-to-end demo
 ```
 

@@ -12,6 +12,7 @@ crosslinks:
 linked_symbols:
   - { file: "src/poc/store.ts" }
   - { file: "src/poc/types.ts" }
+  - { file: "src/poc/promote.ts", fn: promotePocToAdr }
   - { file: "bin/gks.ts", fn: cmdPoc }
   - { file: "src/mcp-server/index.ts" }
   - { file: "examples/atom-templates/POC.md" }
@@ -26,7 +27,7 @@ Closes the gap where `examples/<name>/` directories labelled
 outcome. Lives in the **light-governance** tier next to `ISSUE--` and
 `HOTFIX--` per ADR-012 + ADR--ADD-POC-PREFIX.
 
-## CLI surface (5 subcommands)
+## CLI surface (6 subcommands)
 
 ```sh
 gks poc open SLUG --hypothesis="…" \
@@ -36,12 +37,15 @@ gks poc start POC--SLUG                              # open → running
 gks poc list [--overdue] [--open]
 gks poc close POC--SLUG --resolution=validated|invalidated|abandoned \
                         [--feeds-into=ADR--…] [--produces=AUDIT--…] [--notes="…"]
-gks poc check --file=src/x.ts [--file=src/y.ts]      # pre-commit gate
+gks poc check [--file=src/x.ts ...] [--timing]       # pre-commit gate
+gks poc promote-to-adr POC--SLUG [--slug=…] [--title="…"]   # scaffold ADR draft
+                                                            # into inbound from a closed POC
 ```
 
-## MCP surface (3 tools)
+## MCP surface (4 tools)
 
 - `gks_poc_open` — strict `z.object` schema; `acceptanceCriteria` requires `min(1)`
+- `gks_poc_start` — transition `open → running` (audited as `poc_start`)
 - `gks_poc_list` — `overdue` + `openOnly` filters
 - `gks_poc_close` — `resolution` is a `z.enum`; conditional crosslink fields
 
@@ -109,11 +113,19 @@ Python proof-of-concept that informed ADR-008 (GKS as storage engine)
 and ADR-009 (MSP as orchestrator). Status `validated`; all five
 acceptance criteria met; closed retroactively.
 
+## Recently shipped (lifted into scope)
+
+- ✅ **Auto-promotion `POC-- (terminal) → ADR--` scaffolder.** Initially
+  deferred as "tooling, not a storage primitive" but the blank-page
+  friction was real. Shipped as `src/poc/promote.ts` +
+  `gks poc promote-to-adr` CLI subcommand. Refuses to scaffold
+  non-terminal POCs (open / running). Drops the draft into the inbound
+  queue — the standard human-review gate still applies, the scaffolder
+  just removes the cold-start cost.
+
 ## Out of scope (deferred)
 
 - LLM-assisted hypothesis quality lint — orchestrator concern (e.g. MSP
   rejecting POCs whose hypothesis isn't falsifiable)
-- Auto-promotion `POC-- (validated) → ADR--` scaffolder — tooling, not
-  a storage primitive
 - Time-series visualisation of POC outcome rates — observability, lives
   outside `src/`

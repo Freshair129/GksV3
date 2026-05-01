@@ -11,7 +11,7 @@ bi-temporal versioning, and pluggable backends.
 
 ```sh
 npm run typecheck          # tsc --noEmit (run before every commit)
-npm test                   # vitest run — 321 tests
+npm test                   # vitest run — 344 tests
 npm run build              # tsc -p tsconfig.build.json
 npm run quickstart         # end-to-end demo
 
@@ -190,7 +190,7 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`src/issue/store.ts`](./src/issue/store.ts) | `IssueStore` — ISSUE-- lifecycle |
 | [`src/issue/types.ts`](./src/issue/types.ts) | `Issue` interface and status types |
 | [`src/scaffold/new-feature.ts`](./src/scaffold/new-feature.ts) | `scaffoldNewFeature()` — drops 4 inbound candidates |
-| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 13 tools exposed over stdio |
+| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 23 tools exposed over stdio |
 | [`src/lib/retry.ts`](./src/lib/retry.ts) | Exponential-backoff retry |
 | [`src/lib/circuit-breaker.ts`](./src/lib/circuit-breaker.ts) | Circuit breaker |
 | [`src/lib/telemetry.ts`](./src/lib/telemetry.ts) | OTel API helpers |
@@ -245,7 +245,7 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 
 ---
 
-## MCP tools (16 total)
+## MCP tools (23 total)
 
 | Tool | Purpose |
 |------|---------|
@@ -262,6 +262,13 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 | `gks_hotfix_list` | List open / overdue hotfixes |
 | `gks_hotfix_close` | Mark a hotfix resolved |
 | `gks_poc_open` | Open a time-boxed POC (hypothesis + deadline) |
+| `gks_poc_start` | Transition a POC `open → running` |
 | `gks_poc_list` | List POCs (overdue / openOnly filters) |
 | `gks_poc_close` | Close a POC (resolution: validated/invalidated/abandoned) |
+| `gks_issue_new` | Create an `ISSUE--` atom |
+| `gks_issue_list` | List issues (status / priority / label / assignee filters) |
+| `gks_issue_show` | Read full issue + body sections |
+| `gks_issue_comment` | Append to `## Discussion` (chronological) |
+| `gks_issue_status` | Transition status (open/triaged/in_progress/blocked/closed/wontfix) |
+| `gks_issue_close` | Close + optional `resolved_by` crosslink |
 | `gks_recall_cross_namespace` | Admin: cross-tenant recall (gated) |

@@ -75,11 +75,13 @@ Targets are derived from the user spec (§5) and SOTA references
 ## Phase 6 — Release `[IN PROGRESS]`
 
 ### [/] R.1 — semver + changelog
-- Current version: **v3.5.4**
-- Needs: `changesets` setup for automated releases
+- Current version (`package.json`): **v3.5.5** (most recent git tag: `v3.6.0`)
+- Changesets scaffolded in `.changeset/` per `docs/adr/016-changesets-for-release.md`
+- Awaiting maintainer activation: `npm install --save-dev @changesets/cli` + CI workflow
 
 ### [/] R.2 — npm publish
 - Ready to publish under `@evaai/gks`
+- Blocked on R.1 activation (publish trigger lives in the same workflow)
 
 ---
 

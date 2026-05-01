@@ -1,17 +1,21 @@
 /**
- * Consolidator (a.k.a "Dreaming") — Phase 1 stub.
+ * Consolidator (a.k.a "Dreaming") — deterministic heuristic implementation.
  *
  * Full consolidator pipeline per BLUEPRINT--memory §episodic.consolidation:
  *   1. Collect session trace + messages
- *   2. Extract facts, outcomes, tags, emotion_summary (LLM: CORTEX)
+ *   2. Extract facts, outcomes, tags, emotion_summary
  *   3. Three-Gate Scoring (Relevance × Frequency × Recency) → decide what to keep
  *   4. Write EpisodicMemory markdown (→ EpisodicLayer.writeEpisodic)
  *   5. Generate InboundArtifact[] for candidate new atomic notes
  *
- * This file ships the deterministic, LLM-free parts (3, 4, and the mechanical
- * bits of 5) so that higher-level tests can exercise the plumbing without a
- * network call. The LLM-driven extraction is behind an injectable interface so
- * the real implementation plugs in once the CORTEX client is built.
+ * This file ships the deterministic parts (3, 4, and the mechanical bits
+ * of 5). The summary extraction (step 2) is behind a pluggable
+ * `SummaryExtractor` interface — `HEURISTIC_EXTRACTOR` (defined here) is
+ * the deterministic default used by tests and CI; production callers
+ * inject the LLM-backed extractor from `consolidator-llm.ts`
+ * (Anthropic). Keeping both interchangeable means plumbing, trigger
+ * policy, and Three-Gate scoring can be exercised end-to-end without a
+ * network call.
  */
 
 import type {
@@ -157,9 +161,11 @@ export class Consolidator {
 // ───────────────────────────────────────────────────────── heuristic extractor
 
 /**
- * Phase 1 placeholder extractor — LLM-free. Builds a plausible summary from the
- * session trace so that plumbing, tests, and trigger policy can be exercised
- * end-to-end in CI. Replace with a CORTEX-backed extractor in Phase 2.
+ * Deterministic heuristic extractor — LLM-free. Builds a plausible
+ * summary directly from the session trace so plumbing, trigger policy,
+ * and Three-Gate scoring run end-to-end without a network call. This
+ * is the canonical default for tests and offline CI; the LLM-backed
+ * extractor in `consolidator-llm.ts` is the production swap-in.
  */
 const HEURISTIC_EXTRACTOR: SummaryExtractor = {
   async extract(input: ConsolidationInput) {

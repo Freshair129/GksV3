@@ -35,10 +35,17 @@ done <<< "${STAGED}"
 
 if [ ${#FILE_ARGS[@]} -eq 0 ]; then exit 0; fi
 
+# Pass `GKS_GATE_TIMING=1` to make both checks print elapsed time.
+# Used by POC--POC-OVERDUE-CI-INTEGRATION to confirm overhead < 500ms p95.
+TIMING_FLAG=()
+if [ -n "${GKS_GATE_TIMING:-}" ]; then TIMING_FLAG+=("--timing"); fi
+
 npx tsx "${REPO_ROOT}/bin/gks.ts" hotfix check \
   --root="${REPO_ROOT}" \
+  "${TIMING_FLAG[@]}" \
   "${FILE_ARGS[@]}"
 
 npx tsx "${REPO_ROOT}/bin/gks.ts" poc check \
   --root="${REPO_ROOT}" \
+  "${TIMING_FLAG[@]}" \
   "${FILE_ARGS[@]}"

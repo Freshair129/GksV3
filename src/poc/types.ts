@@ -1,8 +1,5 @@
 /**
- * DRAFT — sketch for src/poc/types.ts
- * Lands here only if ADR--ADD-POC-PREFIX is accepted + promoted.
- *
- * POC-- atom — time-boxed hypothesis-test artifact (proposed ADR).
+ * POC-- atom — time-boxed hypothesis-test artifact (ADR--ADD-POC-PREFIX).
  *
  * Light-tier governance:
  *   • storage: <root>/gks/poc/POC--<NAME>.md

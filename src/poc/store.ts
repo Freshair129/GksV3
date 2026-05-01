@@ -1,12 +1,10 @@
 /**
- * DRAFT — sketch for src/poc/store.ts
- * Lands here only if ADR--ADD-POC-PREFIX is accepted + promoted.
- *
  * PocStore — file-backed log of time-boxed POC atoms.
  *
- * Mirrors HotfixStore conventions: read file → parse → mutate → render →
- * atomic write → audit. POCs mutate slightly more than hotfixes
- * (open → running → close) but the API stays narrow.
+ * Implements ADR--ADD-POC-PREFIX. Mirrors HotfixStore conventions:
+ * read file → parse → mutate → render → atomic write → audit. POCs
+ * mutate slightly more than hotfixes (open → running → close) but the
+ * API stays narrow.
  */
 
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'

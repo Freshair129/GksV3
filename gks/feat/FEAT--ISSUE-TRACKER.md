@@ -13,6 +13,7 @@ linked_symbols:
   - { file: "src/issue/store.ts" }
   - { file: "src/issue/types.ts" }
   - { file: "bin/gks.ts", fn: cmdIssue }
+  - { file: "src/mcp-server/index.ts" }
 ---
 
 # FEAT — Self-hosted issue tracker
@@ -53,8 +54,30 @@ gks issue dashboard [--md]
 freely; body has `## Description` / `## Reproduction` / `## Discussion`
 (append-only) / `## Resolution` sections.
 
+## MCP surface (6 tools)
+
+Mirrors the CLI lifecycle for orchestrator / agent integration:
+
+- `gks_issue_new` — create with optional priority / labels / body
+- `gks_issue_list` — same filters as the CLI (`status` / `priority` / `assignee` / `label`)
+- `gks_issue_show` — full atom + body sections
+- `gks_issue_comment` — append to `## Discussion`
+- `gks_issue_status` — transition to any of the 6 status values
+- `gks_issue_close` — close + optional `resolved_by` crosslink
+
+## Recently shipped (lifted into scope)
+
+- ✅ **MCP `gks_issue_*` tools.** Initially deferred pending demand;
+  added in the doc-vs-code-sync follow-up so orchestrators don't have
+  to shell out to the CLI. The 2 remaining CLI subcommands without an
+  MCP equivalent — `assign` and `dashboard` — are intentionally
+  CLI-only (assign is a thin wrapper, dashboard is formatting).
+
 ## Out of scope (deferred)
 
-- MCP `gks_issue_*` tools — natural follow-up if there's demand
 - Cross-issue link integrity (`blocks` / `blocked_by` graph) — orchestrator
 - Issue → INC-- promotion automation — orchestrator
+- MCP `gks_issue_assign` / `gks_issue_dashboard` — both are
+  CLI-formatting concerns; orchestrators that want assign-via-MCP can
+  use `gks_issue_status` followed by metadata patch via direct file
+  edit, or contribute the wrapper

@@ -826,12 +826,20 @@ export { createNomicEmbedder } from './vector/embedder-nomic.js'
 export type { Embedder, EmbedderOptions, EmbedderInfo } from './vector/embedder.js'
 export { createReranker, rerank } from './rerank.js'
 export type { Reranker, RerankerOptions } from './rerank.js'
-export { createAnthropicClient, createLlmExtractor } from './consolidator-llm.js'
+export { createAnthropicClient, createLlmExtractor, createOpenAICompatibleClient } from './consolidator-llm.js'
 export type {
   LlmClient,
   AnthropicClientOptions,
   LlmExtractorOptions,
+  OpenAICompatibleClientOptions,
 } from './consolidator-llm.js'
+export {
+  bodyHash,
+  createLlmTldrGenerator,
+  generateTldrStamp,
+  heuristicTldrGenerator,
+} from './tldr.js'
+export type { LlmTldrOptions, TldrGenerator, TldrStamp } from './tldr.js'
 export {
   createMockObsidianAdapter,
   createRestObsidianAdapter,

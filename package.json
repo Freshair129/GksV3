@@ -102,6 +102,7 @@
     "rerank:down": "docker compose -f docker-compose.rerank.yml down",
     "rerank:logs": "docker compose -f docker-compose.rerank.yml logs -f",
     "quickstart": "tsx examples/quickstart.ts",
+    "quickstart:local": "tsx examples/quickstart-local.ts",
     "benchmarks": "npm run bench:sweep -- --config=benchmarks/sweep.example.json",
     "changeset": "changeset",
     "version": "changeset version",

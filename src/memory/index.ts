@@ -460,6 +460,11 @@ export class MemoryStore {
       )
     }
 
+    // Snippet budget: undefined → default 240 chars; 0 → index-only (title);
+    // any positive int → custom cap. Forwarded into the per-source mappers so
+    // expensive body slicing is avoided when the caller doesn't want it.
+    const snippetMax = opts.snippetMaxChars
+
     if (sources.includes('vector')) {
       tasks.push(
         (async () => {
@@ -469,7 +474,7 @@ export class MemoryStore {
             ...(opts.scoreThreshold !== undefined ? { scoreThreshold: opts.scoreThreshold } : {}),
             ...(namespaceFilter ? { filter: namespaceFilter } : {}),
           })
-          return vectorHits.map(vectorHitToRetrieval)
+          return vectorHits.map((h) => vectorHitToRetrieval(h, snippetMax))
         })(),
       )
     }
@@ -483,7 +488,7 @@ export class MemoryStore {
             ...(opts.scoreThreshold !== undefined ? { scoreThreshold: opts.scoreThreshold } : {}),
             ...(namespaceFilter ? { filter: namespaceFilter } : {}),
           })
-          return hits.map(vectorHitToRetrieval)
+          return hits.map((h) => vectorHitToRetrieval(h, snippetMax))
         })(),
       )
     }
@@ -493,7 +498,7 @@ export class MemoryStore {
         (async () => {
           try {
             const hits = await this.obsidian!.search(query, { limit: topK })
-            return hits.map(obsidianHitToRetrieval)
+            return hits.map((h) => obsidianHitToRetrieval(h, snippetMax))
           } catch (err) {
             log.warn('obsidian source failed, continuing without', {
               err: (err as Error).message,
@@ -722,33 +727,43 @@ function atomicHitToRetrieval(h: AtomicHit): RetrievalHit {
   }
 }
 
-function vectorHitToRetrieval(h: VectorHit): RetrievalHit {
+function vectorHitToRetrieval(h: VectorHit, snippetMax?: number): RetrievalHit {
   const m = h.doc.metadata
+  const title = typeof m['title'] === 'string' ? (m['title'] as string) : undefined
   return {
     id: h.doc.id,
     source: m['type'] === 'episodic' ? 'episodic' : 'vector',
     score: h.score,
     ...(typeof m['path'] === 'string' ? { path: m['path'] } : {}),
-    ...(typeof m['title'] === 'string' ? { title: m['title'] as string } : {}),
-    snippet: snippetFrom(h.doc.text, 240),
+    ...(title !== undefined ? { title } : {}),
+    snippet: indexOnlySnippet(snippetMax)
+      ? title ?? h.doc.id
+      : snippetFrom(h.doc.text, snippetMax ?? 240),
     metadata: m,
   }
 }
 
-function obsidianHitToRetrieval(h: ObsidianSearchHit): RetrievalHit {
+function obsidianHitToRetrieval(h: ObsidianSearchHit, snippetMax?: number): RetrievalHit {
   return {
     id: h.path,
     source: 'obsidian',
     score: h.score,
     path: h.path,
     title: h.title,
-    snippet: h.snippet,
+    snippet: indexOnlySnippet(snippetMax)
+      ? h.title ?? h.path
+      : snippetFrom(h.snippet, snippetMax ?? h.snippet.length),
     metadata: { matchedBy: h.matchedBy },
   }
 }
 
+function indexOnlySnippet(snippetMax?: number): boolean {
+  return snippetMax === 0
+}
+
 function snippetFrom(text: string, max: number): string {
   const clean = text.replace(/\s+/g, ' ').trim()
+  if (max <= 0) return ''
   return clean.length <= max ? clean : clean.slice(0, max - 1) + '…'
 }
 

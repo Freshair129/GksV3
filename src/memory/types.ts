@@ -275,6 +275,24 @@ export interface RetrievalOptions {
   crossNamespace?: boolean
   boostStable?: boolean
   sources?: Array<'atomic' | 'vector' | 'episodic' | 'obsidian'>
+  /**
+   * Maximum characters retained in each hit's `snippet` field. Lets callers
+   * trade snippet richness for token budget when the recall result is fed
+   * straight into an LLM context window.
+   *
+   *   - default (`undefined`)  → 240 chars (current behaviour)
+   *   - `0`                    → "index-only" mode: snippet becomes the title
+   *                              (or id) only — typically ~50 chars per hit,
+   *                              ~80 % token reduction vs default. Use when
+   *                              the agent will follow up with an explicit
+   *                              `lookup(id)` for the chosen hits.
+   *   - any positive integer   → snippet truncated to that length (with a `…`
+   *                              suffix if cut)
+   *
+   * Atomic and Obsidian hits whose source snippet is already shorter than
+   * the cap are returned unchanged.
+   */
+  snippetMaxChars?: number
 }
 
 export interface RetrievalResult {

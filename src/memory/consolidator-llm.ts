@@ -63,6 +63,161 @@ export interface AnthropicClientOptions {
   costAttrs?: Record<string, string>
 }
 
+export interface OpenAICompatibleClientOptions {
+  /**
+   * Optional API key. Ollama / LM Studio / llama.cpp server don't require
+   * one; cloud-hosted OpenAI-compatible endpoints (Together, Groq, Fireworks)
+   * do. Read from `GKS_LLM_API_KEY` if not passed.
+   */
+  apiKey?: string
+  /**
+   * Base URL of the chat-completions endpoint, *without* the trailing
+   * `/chat/completions`. Defaults to Ollama's local server.
+   *   - Ollama       → http://localhost:11434/v1
+   *   - LM Studio    → http://localhost:1234/v1
+   *   - llama.cpp    → http://localhost:8080/v1
+   *   - vLLM         → http://localhost:8000/v1
+   * Read from `GKS_LLM_BASE_URL` if not passed.
+   */
+  baseUrl?: string
+  /**
+   * Model name. Provider-specific identifier — e.g. `qwen2.5:7b-instruct`
+   * for Ollama, `Qwen/Qwen2.5-7B-Instruct` for vLLM. Read from
+   * `GKS_LLM_MODEL` if not passed.
+   */
+  model?: string
+  /**
+   * Label used in CostTracker records. Inferred from baseUrl when omitted
+   * (`localhost:11434` → `ollama`, `localhost:1234` → `lmstudio`, else
+   * `openai-compatible`).
+   */
+  provider?: string
+  /**
+   * Request timeout. Local SLMs on CPU can be slow; default 120s gives
+   * room for a 7B model to finish a 2048-token completion on modest
+   * hardware.
+   */
+  timeoutMs?: number
+  /**
+   * Pass `response_format: {type: 'json_object'}` on every request. Most
+   * llama.cpp / vLLM / LM Studio builds support this and it removes the
+   * need for fenced-code-block extraction. Set false for endpoints that
+   * reject the field (some older Ollama versions). Default true.
+   */
+  jsonMode?: boolean
+  costTracker?: CostTracker
+  costAttrs?: Record<string, string>
+}
+
+/**
+ * Creates an LlmClient backed by any OpenAI-compatible Chat Completions
+ * endpoint — Ollama, LM Studio, llama.cpp server, vLLM, LocalAI, Together,
+ * Groq, Fireworks, OpenAI itself, etc.
+ *
+ * Designed for the local-SLM consolidation path: paired with a 7B-class
+ * model (Qwen2.5-7B, Llama-3.1-8B, Phi-3.5-mini) on 8–12 GB VRAM, the full
+ * consolidator pipeline runs offline at zero marginal cost.
+ *
+ * Usage:
+ *   const client = createOpenAICompatibleClient({
+ *     baseUrl: 'http://localhost:11434/v1',
+ *     model: 'qwen2.5:7b-instruct',
+ *   })
+ *   const extractor = createLlmExtractor({ client, fallback: heuristic })
+ */
+export function createOpenAICompatibleClient(
+  opts: OpenAICompatibleClientOptions = {},
+): LlmClient {
+  const apiKey = opts.apiKey ?? process.env['GKS_LLM_API_KEY']
+  const baseUrl = (
+    opts.baseUrl ??
+    process.env['GKS_LLM_BASE_URL'] ??
+    'http://localhost:11434/v1'
+  ).replace(/\/+$/, '')
+  const model =
+    opts.model ?? process.env['GKS_LLM_MODEL'] ?? 'qwen2.5:7b-instruct'
+  const provider = opts.provider ?? inferProvider(baseUrl)
+  const timeoutMs = opts.timeoutMs ?? 120_000
+  const jsonMode = opts.jsonMode ?? true
+
+  return {
+    name: `${provider}:${model}`,
+    async generate({ system, user, maxTokens = 2048 }) {
+      return withRetry(
+        async () => {
+          const headers: Record<string, string> = {
+            'content-type': 'application/json',
+          }
+          if (apiKey) headers['authorization'] = `Bearer ${apiKey}`
+
+          const body: Record<string, unknown> = {
+            model,
+            max_tokens: maxTokens,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: user },
+            ],
+          }
+          if (jsonMode) {
+            body['response_format'] = { type: 'json_object' }
+          }
+
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(timeoutMs),
+          })
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => '')
+            throw new Error(
+              `${provider} ${res.status}: ${truncate(redactSecrets(errBody), 300)}`,
+            )
+          }
+          const data = (await res.json()) as {
+            choices?: Array<{ message?: { content?: string } }>
+            usage?: {
+              prompt_tokens?: number
+              completion_tokens?: number
+              total_tokens?: number
+            }
+          }
+          if (opts.costTracker && data.usage) {
+            // OpenAI-compatible servers report prompt_tokens/completion_tokens.
+            // Self-hosted (Ollama / LM Studio) report 0$ via the pricing
+            // table — tracking happens for capacity planning only.
+            opts.costTracker.record({
+              provider,
+              model,
+              inputTokens: data.usage.prompt_tokens ?? 0,
+              outputTokens: data.usage.completion_tokens ?? 0,
+              ...(opts.costAttrs ? { attrs: opts.costAttrs } : {}),
+            })
+          }
+          const choice = data.choices?.[0]?.message?.content ?? ''
+          return choice
+        },
+        { label: `${provider}-chat-completions` },
+      )
+    },
+  }
+}
+
+function inferProvider(baseUrl: string): string {
+  const lower = baseUrl.toLowerCase()
+  if (lower.includes(':11434')) return 'ollama'
+  if (lower.includes(':1234') || lower.includes('lmstudio')) return 'lmstudio'
+  if (lower.includes(':8080')) return 'llamacpp'
+  if (lower.includes(':8000')) return 'vllm'
+  if (lower.includes('api.openai.com')) return 'openai'
+  if (lower.includes('api.together') || lower.includes('together.ai'))
+    return 'together'
+  if (lower.includes('api.groq')) return 'groq'
+  if (lower.includes('localhost') || lower.includes('127.0.0.1'))
+    return 'local-llm'
+  return 'openai-compatible'
+}
+
 export function createAnthropicClient(opts: AnthropicClientOptions = {}): LlmClient {
   const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY']
   if (!apiKey) {

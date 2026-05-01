@@ -38,6 +38,14 @@ export const DEFAULT_PRICING: Record<PricingKey, ModelPricing> = {
 
   // ── Self-hosted (no charge; tokens tracked for capacity / quotas) ───────
   'ollama:bge-m3': { inputPerMTok: 0, outputPerMTok: 0 },
+  'ollama:qwen2.5:7b-instruct': { inputPerMTok: 0, outputPerMTok: 0 },
+  'ollama:llama3.1:8b-instruct': { inputPerMTok: 0, outputPerMTok: 0 },
+  'ollama:phi3.5:3.8b-mini-instruct': { inputPerMTok: 0, outputPerMTok: 0 },
+  'lmstudio:local-model': { inputPerMTok: 0, outputPerMTok: 0 },
+  'llamacpp:local-model': { inputPerMTok: 0, outputPerMTok: 0 },
+  'vllm:local-model': { inputPerMTok: 0, outputPerMTok: 0 },
+  'local-llm:local-model': { inputPerMTok: 0, outputPerMTok: 0 },
+  'openai-compatible:local-model': { inputPerMTok: 0, outputPerMTok: 0 },
   'http:rerank': { inputPerMTok: 0, outputPerMTok: 0 },
   'mock:mock-sha256-d384': { inputPerMTok: 0, outputPerMTok: 0 },
 }

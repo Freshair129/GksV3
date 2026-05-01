@@ -1,5 +1,62 @@
 # Changelog
 
+## 3.6.0
+
+### Minor Changes
+
+- 58659e8: Add `POC--` prefix — time-boxed hypothesis-test atom (light-tier).
+
+  Closes the gap where `examples/<name>/` directories labelled
+  "proof-of-concept" had no atom recording their hypothesis, deadline,
+  or outcome. Mirrors the `HOTFIX--` light-tier pattern: direct write,
+  schema-validated, lifecycle-enforced (`open → running → validated /
+invalidated / abandoned`), pre-commit hook blocks on overdue.
+
+  User-visible additions:
+
+  - Taxonomy: `'poc'` added to `AtomicType`; `KNOWLEDGE-TYPES.md`
+    Cluster 1 entry; `examples/atom-templates/POC.md`
+  - Storage primitives: `PocStore` (open / start / close / list /
+    listOverdue), `validatePoc`, `isOverdue`, `isClosed`,
+    `promotePocToAdr`
+  - CLI: `gks poc open / start / close / list / check /
+promote-to-adr`; `--timing` flag on `hotfix check` + `poc check`
+  - MCP tools: `gks_poc_open`, `gks_poc_start`, `gks_poc_list`,
+    `gks_poc_close` (4 of the 10 new MCP tools shipped — the other 6
+    are `gks_issue_*` mirrors of the existing ISSUE-- CLI)
+  - Pre-commit gate: `examples/drift-detection/hotfix-gate.sh` now
+    runs both `hotfix check` and `poc check`
+
+  Related ADRs / atoms shipped alongside:
+
+  - `ADR--ADD-POC-PREFIX` — the proposal
+  - `FEAT--POC-LIGHT-TIER` — the dogfood feature atom
+  - `POC--MEMORY-OS-ARCHITECTURE` — backfill (status: validated)
+  - `POC--POC-OVERDUE-CI-INTEGRATION` — first running POC
+
+  MCP server tool count grows 13 → 23 over this batch.
+
+### Patch Changes
+
+- 58659e8: Activate Changesets for release management (Phase 6 R.1).
+
+  `@changesets/cli` is now a devDependency; `.github/workflows/release.yml`
+  runs on every push to `main`, opens a "Version Packages" PR when
+  `.changeset/*.md` files are pending, and publishes to npm when that PR
+  is merged. See `docs/adr/016-changesets-for-release.md` for the
+  decision record.
+
+  Maintainer one-time setup before the first publish:
+
+  1. Set `NPM_TOKEN` GitHub repo secret (npm token with publish access
+     to `@evaai/gks`).
+  2. (Optional) Set `RELEASE_BOT_TOKEN` to a PAT so version-bump
+     commits don't retrigger the workflow.
+
+  After the first release, the workflow takes over: contributors run
+  `npx changeset` per PR, the bot consolidates them, and publishes
+  happen on merge.
+
 All notable changes to GKS v3 are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project follows [Semantic Versioning](https://semver.org/).
@@ -61,7 +118,7 @@ Several stale numerical claims aligned with reality:
 - `docs/ULTRAPLAN.md` Phase 6 R.1: current version `v3.5.4 → v3.5.5`,
   changesets activation status documented
 - `gks/feat/FEAT--POC-LIGHT-TIER.md` MCP surface `(3 tools) → (4
-  tools)` with `gks_poc_start`; CLI surface 5 → 6 with
+tools)` with `gks_poc_start`; CLI surface 5 → 6 with
   `promote-to-adr`; `linked_symbols` adds `src/poc/promote.ts`;
   "Recently shipped" section captures the auto-promotion graduation
 - `gks/feat/FEAT--ISSUE-TRACKER.md` adds "MCP surface (6 tools)"
@@ -71,7 +128,7 @@ Several stale numerical claims aligned with reality:
 ### Changed — `src/memory/consolidator.ts` documentation
 
 The "Phase 1 stub" header in `consolidator.ts` was misleading — the
-heuristic extractor is the deterministic *default*, not a placeholder
+heuristic extractor is the deterministic _default_, not a placeholder
 waiting for a replacement. Doc clarified to point at
 `consolidator-llm.ts` as the production swap-in.
 
@@ -102,7 +159,7 @@ hook blocks on overdue.
 - MCP server: `gks_poc_open` / `gks_poc_list` / `gks_poc_close`
   (tool count 13 → 16)
 - Pre-commit gate: `examples/drift-detection/hotfix-gate.sh` now runs
-  `gks hotfix check` *and* `gks poc check` — overdue atoms in either
+  `gks hotfix check` _and_ `gks poc check` — overdue atoms in either
   light-tier store can block a commit
 - Tests: 17 new (`test/poc/`, `test/cli/gks-poc.test.ts`, `test/mcp/`
   expansions) — total 338 passed | 3 skipped
@@ -191,8 +248,8 @@ version bumped to 3.5.5 (was 3.5.4); README MCP tool count updated.
 ### Added — atoms recognised in the taxonomy
 
 - `HOTFIX--` (light tier) — escape-hatch atom with required `valid_to`
-  + `meta.commit_sha`. `gks/hotfix/`. Closed by backfill atoms via
-  `crosslinks.resolves`.
+  - `meta.commit_sha`. `gks/hotfix/`. Closed by backfill atoms via
+    `crosslinks.resolves`.
 
 Removed (no production users — ADR-015):
 
@@ -298,6 +355,7 @@ inside GKS without depending on Linear / Jira / GitHub Issues.
   gks issue close ID [--resolved-by=ADR-…]
   gks issue dashboard [--md]
   ```
+
 - **Audit ops** — `issue_create`, `issue_comment`, `issue_status_change`,
   `issue_assign`, `issue_close` added to the `AuditOp` union.
 
@@ -343,6 +401,7 @@ that ADR-010 made queryable.
   - `--verbose` lists each indexed / skipped file.
 
 ### Tests
+
 - 256 passing (was 251 in 3.5.2) across 33 test files; 3 still opt-in.
   +5 new integration tests covering happy path, citation preservation,
   invalid-id skipping, dry-run, and self-reference avoidance.
@@ -377,6 +436,7 @@ reverse — given a code path, find the atoms that govern it.
   the two; GKS still has no GitNexus dependency).
 
 ### Tests
+
 - 251 passing (was 241 in 3.5.1) across 32 test files; 3 still opt-in.
   +10 new tests covering match semantics + CLI + MCP round-trips.
 
@@ -492,6 +552,7 @@ API changes; safe to upgrade.
   to-end smoke test (`smoke-test.ts`, 7 assertions) passes.
 
 ### Tests
+
 - 241 passing (was 237 in 3.5.0) across 32 test files; 3 still opt-in.
   +3 new tests: 2 inbound (renders / omits) + 1 CLI (round-trip).
 
@@ -506,6 +567,7 @@ publish — the tree was always private up to this point.
 ### Added
 
 #### Memory layers
+
 - **Atomic** layer with JSONL index, exact-id lookup that never
   hallucinates, hot-reload via mtime, filter by phase / type / status /
   tag.
@@ -527,6 +589,7 @@ publish — the tree was always private up to this point.
   destined for `gks/`.
 
 #### Core API
+
 - `retain(content, namespace?, conflictPolicy?)` with bi-temporal
   versioning (`valid_from` / `valid_to` / `superseded_by`), namespace-
   scoped conflict resolution, single-embed optimization, and batched
@@ -537,6 +600,7 @@ publish — the tree was always private up to this point.
   with a pluggable LLM-backed extractor (Anthropic Sonnet 4.6 default).
 
 #### Multi-tenancy
+
 - First-class `Namespace` type (`tenant_id` / `user_id` / `session_id` /
   `agent_id`) threaded through retain / recall / supersede.
 - `crossNamespace: true` opt-out for admin / analytics paths.
@@ -545,6 +609,7 @@ publish — the tree was always private up to this point.
   namespace.
 
 #### Production hardening
+
 - Retry with exponential backoff + full jitter on every network call.
 - Circuit breaker per provider; auth errors don't trip the breaker.
 - Bounded LRU on the Obsidian cache.
@@ -556,6 +621,7 @@ publish — the tree was always private up to this point.
 - `gks-migrate` runner for forward-migrating stores.
 
 #### Observability
+
 - OpenTelemetry façade with no-op default — zero tax when no SDK is
   registered.
 - Spans on `gks.retain` / `gks.recall`, histograms for embedder /
@@ -564,11 +630,13 @@ publish — the tree was always private up to this point.
   manager.
 
 #### Surfaces
+
 - `gks-mcp-server` — MCP server exposing six tools over stdio.
 - `gks` CLI — `init / retain / recall / lookup / propose-inbound /
-  reflect / status` subcommands with stdin support and `--json` mode.
+reflect / status` subcommands with stdin support and `--json` mode.
 
 #### Benchmarks
+
 - Backend-pluggable runners for **LoCoMo**, **LongMemEval**, and
   **BEAM** (10M-token scale).
 - `bench:sweep` orchestrator running the embedder × reranker × backend
@@ -576,6 +644,7 @@ publish — the tree was always private up to this point.
 - Tiny fixtures shipped for offline smoke testing.
 
 #### Docs
+
 - `docs/ARCHITECTURE.md` with five mermaid diagrams (layer dependency,
   retain flow, recall flow, bi-temporal lifecycle, cross-cutting).
 - `docs/ULTRAPLAN.md` — six-phase roadmap.
@@ -587,11 +656,13 @@ publish — the tree was always private up to this point.
   first-class, FalkorDB cut, OTel no-op default, MCP stdio-only).
 
 ### Tests
+
 - 237 passing across 32 test files; 3 opt-in (gated by env vars for
   live rerank server).
 - CI runs Node 20 + 22 with mock embedder for hermeticity.
 
 ### Known gaps (deferred)
+
 - Real-scale benchmark numbers (Phase 3 tooling is in place; the runs
   themselves need infra the project ships docker-compose files for).
 - `KuzuGraphBackend` for users who want embedded graph without

@@ -1,15 +1,12 @@
 ---
-proposed_id: CONCEPT--SUMMARY-TLDR
+id: CONCEPT--SUMMARY-TLDR
 phase: 1
 type: concept
-status: raw
-review_id: rev-mompxkwh-0651154b
-proposed_at: 2026-05-01T09:36:39.186Z
-crosslinks:
-  references:
-    - CONCEPT--MEMORY-STORE
-    - ADR--NOMIC-EMBEDDER
-    - ADR--FLAT-ATOM-LAYOUT
+status: stable
+vault_id: default
+title: CONCEPT — Pre-computed atom TL;DR summary field
+crosslinks: {"references":["CONCEPT--MEMORY-STORE","ADR--FLAT-ATOM-LAYOUT"]}
+created_at: 2026-05-01T10:18:24.338Z
 ---
 
 # CONCEPT — Pre-computed atom TL;DR summary field

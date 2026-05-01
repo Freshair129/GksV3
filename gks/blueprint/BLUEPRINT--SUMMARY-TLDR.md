@@ -1,10 +1,11 @@
 ---
-proposed_id: BLUEPRINT--SUMMARY-TLDR
+id: BLUEPRINT--SUMMARY-TLDR
 phase: 3
 type: blueprint
-status: raw
-review_id: rev-mompxkwk-4c9d6bf1
-proposed_at: 2026-05-01T09:36:39.188Z
+status: stable
+vault_id: default
+title: BLUEPRINT — Pre-computed atom TL;DR summary field
+crosslinks: {"parent_adr":["ADR--SUMMARY-TLDR"],"parent_concept":["CONCEPT--SUMMARY-TLDR"]}
 linked_symbols:
   - {"file":"src/memory/types.ts","fn":"AtomicEntry"}
   - {"file":"src/memory/types.ts","fn":"AtomicNote"}
@@ -13,11 +14,7 @@ linked_symbols:
   - {"file":"src/memory/index.ts","fn":"vectorHitToRetrieval"}
   - {"file":"src/memory/inbound.ts","fn":"InboundQueue.promote"}
   - {"file":"src/memory/consolidator-llm.ts","fn":"createOpenAICompatibleClient"}
-crosslinks:
-  parent_adr:
-    - ADR--SUMMARY-TLDR
-  parent_concept:
-    - CONCEPT--SUMMARY-TLDR
+created_at: 2026-05-01T10:18:27.103Z
 ---
 
 # BLUEPRINT — Pre-computed atom TL;DR summary field

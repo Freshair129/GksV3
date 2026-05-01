@@ -73,6 +73,24 @@ export interface AtomicEntry {
    * Treated as file-level citations by reverse lookup (ADR-010).
    */
   geography?: string[]
+  /**
+   * Pre-computed ≤200-token summary of the atom body, generated once at
+   * promote/retain time. When present, recall() returns this as the hit
+   * snippet instead of a body excerpt — same token budget, far better
+   * signal. See ADR--SUMMARY-TLDR.
+   *
+   * Optional. Atoms without a TLDR keep working — recall falls back to
+   * the prior body-excerpt / title-only behaviour.
+   */
+  summary_tldr?: string
+  /**
+   * SHA-256 (first 16 hex chars) of the body that was summarised. Used
+   * by `gks validate --tldr-staleness` to detect bodies that have been
+   * edited since the TLDR was generated.
+   */
+  summary_tldr_body_hash?: string
+  /** ISO-8601 timestamp the TLDR was generated. */
+  summary_tldr_generated_at?: string
 }
 
 /** Full atomic note (frontmatter + body). */
@@ -120,6 +138,14 @@ export interface VectorMetadata {
   /** If this doc supersedes another, the ID of the doc it invalidated. */
   superseded_by?: string
   supersedes?: string
+  /**
+   * Pre-computed ≤200-token summary of the doc body, generated at retain
+   * time when `generateTldr: true`. When present, recall returns this as
+   * the hit snippet (capped by `snippetMaxChars`). See ADR--SUMMARY-TLDR.
+   */
+  summary_tldr?: string
+  summary_tldr_body_hash?: string
+  summary_tldr_generated_at?: string
   [k: string]: unknown
 }
 
@@ -354,6 +380,18 @@ export interface RetainInput {
    * orchestrator's job (see ADR-009).
    */
   linkedSymbols?: LinkedSymbol[]
+  /**
+   * If true, generate a `summary_tldr` for the new vector doc and stamp
+   * it (plus body hash + timestamp) onto the doc's metadata. When true
+   * and `tldrGenerator` is omitted, the heuristic generator is used so
+   * the call still works offline. See ADR--SUMMARY-TLDR.
+   */
+  generateTldr?: boolean
+  /**
+   * Optional TldrGenerator used when `generateTldr` is true. Defaults to
+   * the heuristic generator (zero LLM cost) when not provided.
+   */
+  tldrGenerator?: import('./tldr.js').TldrGenerator
 }
 
 export interface RetainResult {

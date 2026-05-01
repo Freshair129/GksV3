@@ -29,6 +29,7 @@ import {
   type ConsolidationOutput,
   type ConsolidatorOptions,
 } from './consolidator.js'
+import { generateTldrStamp, heuristicTldrGenerator } from './tldr.js'
 import { createLogger } from '../lib/logger.js'
 import {
   METRIC_NAMES,
@@ -88,11 +89,30 @@ async function retainInner(
   )
 
   const baseMetadata = applyNamespace(input.metadata ?? {}, effectiveNs)
+
+  // Optional TL;DR generation per ADR--SUMMARY-TLDR. Heuristic fallback
+  // means callers can opt in without configuring an LLM client; LLM-backed
+  // generators are wired explicitly via `tldrGenerator`.
+  let tldrFields: Partial<Record<string, string>> = {}
+  if (input.generateTldr) {
+    const generator = input.tldrGenerator ?? heuristicTldrGenerator()
+    const titleMeta = baseMetadata['title']
+    const stamp = await generateTldrStamp(generator, input.content, {
+      ...(typeof titleMeta === 'string' ? { title: titleMeta } : {}),
+    })
+    tldrFields = {
+      summary_tldr: stamp.summary_tldr,
+      summary_tldr_body_hash: stamp.summary_tldr_body_hash,
+      summary_tldr_generated_at: stamp.summary_tldr_generated_at,
+    }
+  }
+
   const doc = await vectorStore.addWithVector(input.content, vector, {
     ...baseMetadata,
     valid_from: validFrom,
     valid_to: null,
     ...(toInvalidate.length > 0 ? { supersedes: toInvalidate[0] } : {}),
+    ...tldrFields,
   })
 
   if (toInvalidate.length > 0) {

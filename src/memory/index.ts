@@ -448,22 +448,22 @@ export class MemoryStore {
 
     const tasks: Array<Promise<RetrievalHit[]>> = []
 
+    // Snippet budget: undefined → default 240 chars; 0 → index-only (title);
+    // any positive int → custom cap. Forwarded into the per-source mappers so
+    // expensive body slicing is avoided when the caller doesn't want it.
+    const snippetMax = opts.snippetMaxChars
+
     if (sources.includes('atomic')) {
       tasks.push(
         (async () => {
           if (looksLikeAtomicId(query)) {
             const hit = await this.atomic.searchById(query)
-            return hit ? [atomicHitToRetrieval(hit)] : []
+            return hit ? [atomicHitToRetrieval(hit, snippetMax)] : []
           }
           return []
         })(),
       )
     }
-
-    // Snippet budget: undefined → default 240 chars; 0 → index-only (title);
-    // any positive int → custom cap. Forwarded into the per-source mappers so
-    // expensive body slicing is avoided when the caller doesn't want it.
-    const snippetMax = opts.snippetMaxChars
 
     if (sources.includes('vector')) {
       tasks.push(
@@ -709,20 +709,30 @@ function defaultSources(
   }
 }
 
-function atomicHitToRetrieval(h: AtomicHit): RetrievalHit {
+function atomicHitToRetrieval(h: AtomicHit, snippetMax?: number): RetrievalHit {
   const { note } = h
+  // Prefer the pre-computed TL;DR when available (ADR--SUMMARY-TLDR);
+  // index-only mode + falls back to title/id when absent.
+  const tldr = typeof note.summary_tldr === 'string' ? note.summary_tldr : undefined
+  const fallbackSnippet = note.title ?? note.id
+  const snippet = indexOnlySnippet(snippetMax)
+    ? fallbackSnippet
+    : tldr
+      ? snippetFrom(tldr, snippetMax ?? tldr.length)
+      : fallbackSnippet
   return {
     id: note.id,
     source: 'atomic',
     score: h.score,
     path: note.path,
     ...(note.title !== undefined ? { title: note.title } : {}),
-    snippet: note.title ?? note.id,
+    snippet,
     metadata: {
       phase: note.phase,
       type: note.type,
       status: note.status,
       matchedBy: h.matchedBy,
+      ...(tldr ? { summary_tldr: tldr } : {}),
     },
   }
 }
@@ -730,15 +740,19 @@ function atomicHitToRetrieval(h: AtomicHit): RetrievalHit {
 function vectorHitToRetrieval(h: VectorHit, snippetMax?: number): RetrievalHit {
   const m = h.doc.metadata
   const title = typeof m['title'] === 'string' ? (m['title'] as string) : undefined
+  const tldr = typeof m['summary_tldr'] === 'string' ? (m['summary_tldr'] as string) : undefined
+  const snippet = indexOnlySnippet(snippetMax)
+    ? title ?? h.doc.id
+    : tldr
+      ? snippetFrom(tldr, snippetMax ?? tldr.length)
+      : snippetFrom(h.doc.text, snippetMax ?? 240)
   return {
     id: h.doc.id,
     source: m['type'] === 'episodic' ? 'episodic' : 'vector',
     score: h.score,
     ...(typeof m['path'] === 'string' ? { path: m['path'] } : {}),
     ...(title !== undefined ? { title } : {}),
-    snippet: indexOnlySnippet(snippetMax)
-      ? title ?? h.doc.id
-      : snippetFrom(h.doc.text, snippetMax ?? 240),
+    snippet,
     metadata: m,
   }
 }

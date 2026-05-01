@@ -1,17 +1,12 @@
 ---
-proposed_id: ADR--SUMMARY-TLDR
+id: ADR--SUMMARY-TLDR
 phase: 2
 type: adr
-status: raw
-review_id: rev-mompxkwj-c367f009
-proposed_at: 2026-05-01T09:36:39.187Z
-crosslinks:
-  parent_concept:
-    - CONCEPT--SUMMARY-TLDR
-  references:
-    - ADR--FLAT-ATOM-LAYOUT
-    - ADR--EXTENDED-TAXONOMY
-    - ADR--NOMIC-EMBEDDER
+status: stable
+vault_id: default
+title: ADR — Pre-computed atom TL;DR summary field
+crosslinks: {"parent_concept":["CONCEPT--SUMMARY-TLDR"],"references":["ADR--FLAT-ATOM-LAYOUT","ADR--EXTENDED-TAXONOMY"]}
+created_at: 2026-05-01T10:18:25.820Z
 ---
 
 # ADR — Pre-computed atom TL;DR summary field

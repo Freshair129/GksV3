@@ -1,23 +1,18 @@
 ---
-proposed_id: FEAT--SUMMARY-TLDR
+id: FEAT--SUMMARY-TLDR
 phase: 2
 type: feat
-status: raw
-review_id: rev-mompxkwk-dedc660f
-proposed_at: 2026-05-01T09:36:39.188Z
+status: stable
+vault_id: default
+title: FEAT — Pre-computed atom TL;DR summary field
+crosslinks: {"parent_concept":["CONCEPT--SUMMARY-TLDR"],"parent_adr":["ADR--SUMMARY-TLDR"],"parent_blueprint":["BLUEPRINT--SUMMARY-TLDR"]}
 linked_symbols:
   - {"file":"src/memory/types.ts","fn":"AtomicEntry"}
   - {"file":"src/memory/gks.ts","fn":"AtomicLayer"}
   - {"file":"src/memory/api.ts","fn":"retain"}
   - {"file":"src/memory/inbound.ts","fn":"InboundQueue.promote"}
   - {"file":"src/memory/tldr.ts"}
-crosslinks:
-  parent_concept:
-    - CONCEPT--SUMMARY-TLDR
-  parent_adr:
-    - ADR--SUMMARY-TLDR
-  parent_blueprint:
-    - BLUEPRINT--SUMMARY-TLDR
+created_at: 2026-05-01T10:18:28.639Z
 ---
 
 # FEAT — Pre-computed atom TL;DR summary field

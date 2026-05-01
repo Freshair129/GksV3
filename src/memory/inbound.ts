@@ -23,6 +23,7 @@ import type { InboundArtifact, InboundReceipt, Phase } from './types.js'
 import { isAtomicId } from './atomic-id.js'
 import { yamlLite } from '../lib/yaml-lite.js'
 import { createLogger } from '../lib/logger.js'
+import { generateTldrStamp, type TldrGenerator } from './tldr.js'
 
 const log = createLogger('inbound')
 
@@ -174,10 +175,40 @@ export class InboundQueue {
     }
     if (fm['title']) promoted['title'] = fm['title']
     else if (titleFromBody) promoted['title'] = titleFromBody
-    for (const k of ['tags', 'crosslinks', 'linked_symbols', 'geography', 'created_at']) {
+    for (const k of [
+      'tags',
+      'crosslinks',
+      'linked_symbols',
+      'geography',
+      'created_at',
+      'summary_tldr',
+      'summary_tldr_body_hash',
+      'summary_tldr_generated_at',
+    ]) {
       if (fm[k] !== undefined) promoted[k] = fm[k]
     }
     if (!promoted['created_at']) promoted['created_at'] = new Date().toISOString()
+
+    // Optionally (re)generate the TL;DR before writing the canonical file.
+    // Per FEAT--SUMMARY-TLDR AC4: --generate-tldr at promote time calls the
+    // configured generator once and stamps frontmatter fields. Existing
+    // values from the inbound candidate are overwritten — the promote-time
+    // generation is the canonical one.
+    if (opts.generateTldr) {
+      if (!opts.tldrGenerator) {
+        throw new Error(
+          'InboundQueue.promote: generateTldr=true requires tldrGenerator (pass via opts)',
+        )
+      }
+      const titleStr = typeof promoted['title'] === 'string' ? promoted['title'] : undefined
+      const stamp = await generateTldrStamp(opts.tldrGenerator, parsed.body, {
+        ...(titleStr ? { title: titleStr } : {}),
+        type,
+      })
+      promoted['summary_tldr'] = stamp.summary_tldr
+      promoted['summary_tldr_body_hash'] = stamp.summary_tldr_body_hash
+      promoted['summary_tldr_generated_at'] = stamp.summary_tldr_generated_at
+    }
 
     const out = `---\n${yamlLite(promoted)}---\n\n${parsed.body.trim()}\n`
     await mkdir(dirname(dest), { recursive: true })
@@ -205,6 +236,14 @@ export interface PromoteOptions {
   vaultId?: string
   /** Allow overwriting an existing gks/<type>/<id>.md. Default false. */
   force?: boolean
+  /**
+   * If true, runs `tldrGenerator` over the candidate body and stamps
+   * `summary_tldr` + `summary_tldr_body_hash` + `summary_tldr_generated_at`
+   * into the promoted file's frontmatter. See ADR--SUMMARY-TLDR.
+   */
+  generateTldr?: boolean
+  /** Required when `generateTldr=true`. */
+  tldrGenerator?: TldrGenerator
 }
 
 export interface PromoteResult {

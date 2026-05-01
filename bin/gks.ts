@@ -816,12 +816,40 @@ async function cmdVerifyFlow(argv: string[]): Promise<void> {
 async function cmdValidate(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
-    options: { ...GLOBAL_OPTIONS, links: { type: 'boolean' } },
+    options: {
+      ...GLOBAL_OPTIONS,
+      links: { type: 'boolean' },
+      'tldr-staleness': { type: 'boolean' },
+    },
   })
   const flags = readGlobals(values)
-  // Default mode is --links — it's the only check we ship today.
   const store = await openStore(flags)
   await store.atomic.loadIndex()
+
+  // --tldr-staleness: read each atom's body, recompute hash, compare with
+  // the stored summary_tldr_body_hash. Atoms with no TLDR are skipped
+  // (the field is optional). Per FEAT--SUMMARY-TLDR AC7, this exits
+  // non-zero when any atom is stale (warn-level, recall keeps working).
+  if (values['tldr-staleness']) {
+    const stale = await collectStaleTldr(store)
+    const result = { ok: stale.length === 0, stale }
+    emit(flags, result, () => {
+      console.log(`tldr-staleness: scanned ${store.atomic.size()} atom(s)`)
+      if (stale.length === 0) {
+        console.log('  status: OK')
+      } else {
+        console.log(`  status: STALE (${stale.length} atom(s))`)
+        for (const s of stale) {
+          console.log(`  ✗ ${s.id} — ${s.reason}`)
+        }
+        console.log('  hint: re-run `gks inbound promote ... --generate-tldr` after editing.')
+      }
+    })
+    if (!result.ok) process.exit(1)
+    return
+  }
+
+  // Default mode is --links.
   const byId = new Map<string, ReturnType<typeof store.atomic.filter>[number]>()
   for (const e of store.atomic.filter({})) byId.set(e.id, e)
   const result = validateLinks(byId)
@@ -829,6 +857,30 @@ async function cmdValidate(argv: string[]): Promise<void> {
     for (const line of formatValidateLinksResult(result)) console.log(line)
   })
   if (!result.ok) process.exit(1)
+}
+
+async function collectStaleTldr(
+  store: Awaited<ReturnType<typeof openStore>>,
+): Promise<Array<{ id: string; reason: string }>> {
+  const { bodyHash } = await import('../src/memory/tldr.js')
+  const out: Array<{ id: string; reason: string }> = []
+  for (const entry of store.atomic.filter({})) {
+    if (!entry.summary_tldr) continue // no TLDR → not eligible for staleness
+    const note = await store.atomic.lookup(entry.id)
+    if (!note) continue
+    // Strip frontmatter so the hash matches the body the TLDR was
+    // generated from (promote stamps over the post-frontmatter body).
+    const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+    const expected = entry.summary_tldr_body_hash
+    if (!expected) {
+      out.push({ id: entry.id, reason: 'summary_tldr present but body_hash missing' })
+      continue
+    }
+    if (bodyHash(body) !== expected) {
+      out.push({ id: entry.id, reason: 'body hash mismatch — body edited since TLDR generated' })
+    }
+  }
+  return out
 }
 
 // ─── new-feature scaffolder (ADR-014 item 5) ───────────────────────────────
@@ -960,7 +1012,12 @@ async function cmdInboundPromote(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { ...GLOBAL_OPTIONS, force: { type: 'boolean' }, status: { type: 'string' } },
+    options: {
+      ...GLOBAL_OPTIONS,
+      force: { type: 'boolean' },
+      status: { type: 'string' },
+      'generate-tldr': { type: 'boolean' },
+    },
   })
   const flags = readGlobals(values)
   const id = positionals[0]
@@ -969,9 +1026,29 @@ async function cmdInboundPromote(argv: string[]): Promise<void> {
     process.exit(1)
   }
   const store = await openStore(flags)
+
+  // --generate-tldr: build a generator. Heuristic by default — zero LLM
+  // cost, deterministic, no API needed. Wire LlmClient via env if any of
+  // GKS_LLM_BASE_URL / ANTHROPIC_API_KEY is set.
+  let tldrGenerator: import('../src/memory/tldr.js').TldrGenerator | undefined
+  if (values['generate-tldr']) {
+    const { heuristicTldrGenerator, createLlmTldrGenerator } = await import('../src/memory/tldr.js')
+    if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+      const { createOpenAICompatibleClient } = await import('../src/memory/consolidator-llm.js')
+      tldrGenerator = createLlmTldrGenerator({ client: createOpenAICompatibleClient() })
+    } else if (process.env['ANTHROPIC_API_KEY']) {
+      const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+      tldrGenerator = createLlmTldrGenerator({ client: createAnthropicClient() })
+    } else {
+      tldrGenerator = heuristicTldrGenerator()
+    }
+  }
+
   const result = await store.inbound.promote(id, {
     force: values['force'] === true,
     status: values['status'] as string | undefined,
+    ...(values['generate-tldr'] ? { generateTldr: true } : {}),
+    ...(tldrGenerator ? { tldrGenerator } : {}),
   })
   emit(flags, result, () => {
     console.log(`✓ promoted ${result.id}`)

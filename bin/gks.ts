@@ -104,6 +104,9 @@ async function main(): Promise<void> {
     case 'inbound':
       await cmdInbound(subArgv)
       break
+    case 'tldr':
+      await cmdTldr(subArgv)
+      break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
       printUsage()
@@ -1056,6 +1059,150 @@ async function cmdInboundPromote(argv: string[]): Promise<void> {
     console.log(`  → ${result.dest}`)
     console.log('  remember: rebuild the index with `npm run msp:index`')
   })
+}
+
+// ─── tldr (regenerate atom summaries) ──────────────────────────────────────
+
+async function cmdTldr(argv: string[]): Promise<void> {
+  const subcmd = argv[0]
+  const rest = argv.slice(1)
+  if (!subcmd) {
+    console.error('gks tldr: missing subcommand. Try: regenerate')
+    process.exit(1)
+  }
+  switch (subcmd) {
+    case 'regenerate':
+    case 'regen':
+      await cmdTldrRegenerate(rest)
+      break
+    default:
+      console.error(`gks tldr: unknown subcommand '${subcmd}'`)
+      process.exit(1)
+  }
+}
+
+/**
+ * `gks tldr regenerate <id...> [--all-stale]`
+ *
+ * Reads each atom's body, runs the configured generator, and rewrites the
+ * frontmatter with fresh summary_tldr / body_hash / generated_at fields.
+ * Generator selection mirrors `inbound promote --generate-tldr`:
+ *   - GKS_LLM_BASE_URL / GKS_LLM_API_KEY → OpenAI-compatible local SLM
+ *   - ANTHROPIC_API_KEY                  → Anthropic
+ *   - else                                → heuristic (deterministic)
+ *
+ * Designed to plug into a pre-commit / pre-push hook — see
+ * CONTRIBUTING.md for sample wiring.
+ */
+async function cmdTldrRegenerate(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      'all-stale': { type: 'boolean' },
+      'dry-run': { type: 'boolean' },
+    },
+  })
+  const flags = readGlobals(values)
+  const store = await openStore(flags)
+  await store.atomic.loadIndex()
+
+  const allStale = values['all-stale'] === true
+  const dryRun = values['dry-run'] === true
+  const explicitIds = positionals
+
+  if (!allStale && explicitIds.length === 0) {
+    console.error('gks tldr regenerate: pass at least one atomic id, or --all-stale')
+    process.exit(1)
+  }
+
+  // Build the generator once. Heuristic fallback ensures the command
+  // always works offline.
+  const { heuristicTldrGenerator, createLlmTldrGenerator, generateTldrStamp } = await import(
+    '../src/memory/tldr.js'
+  )
+  let generator: import('../src/memory/tldr.js').TldrGenerator
+  if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+    const { createOpenAICompatibleClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createOpenAICompatibleClient() })
+  } else if (process.env['ANTHROPIC_API_KEY']) {
+    const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createAnthropicClient() })
+  } else {
+    generator = heuristicTldrGenerator()
+  }
+
+  // Resolve target ids.
+  const { bodyHash } = await import('../src/memory/tldr.js')
+  let targets: string[]
+  if (allStale) {
+    targets = []
+    for (const entry of store.atomic.filter({})) {
+      if (!entry.summary_tldr || !entry.summary_tldr_body_hash) continue
+      const note = await store.atomic.lookup(entry.id)
+      if (!note) continue
+      const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+      if (bodyHash(body) !== entry.summary_tldr_body_hash) targets.push(entry.id)
+    }
+    // Append any explicit ids the user passed alongside --all-stale.
+    for (const id of explicitIds) if (!targets.includes(id)) targets.push(id)
+  } else {
+    targets = explicitIds
+  }
+
+  if (targets.length === 0) {
+    emit(flags, { ok: true, regenerated: [], skipped: 'no stale atoms' }, () => {
+      console.log('tldr regenerate: nothing to do (no stale atoms)')
+    })
+    return
+  }
+
+  const { regenerateTldrInPlace } = await import('../src/memory/tldr.js')
+
+  const regenerated: Array<{ id: string; path: string; generator: string }> = []
+  const errors: Array<{ id: string; reason: string }> = []
+  for (const id of targets) {
+    const entry = store.atomic.getEntry(id)
+    if (!entry) {
+      errors.push({ id, reason: 'not in atomic_index.jsonl (run `npm run msp:index` first?)' })
+      continue
+    }
+    const note = await store.atomic.lookup(id)
+    if (!note) {
+      errors.push({ id, reason: 'lookup returned null' })
+      continue
+    }
+    if (dryRun) {
+      const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+      const stamp = await generateTldrStamp(generator, body, {
+        ...(note.title ? { title: note.title } : {}),
+        type: note.type,
+      })
+      regenerated.push({ id, path: entry.path, generator: generator.name })
+      console.log(`[dry-run] ${id}`)
+      console.log(`  generator: ${generator.name}`)
+      console.log(`  summary_tldr: ${stamp.summary_tldr.slice(0, 120)}${stamp.summary_tldr.length > 120 ? '…' : ''}`)
+      continue
+    }
+    try {
+      const filePath = await regenerateTldrInPlace(store, id, generator)
+      regenerated.push({ id, path: filePath, generator: generator.name })
+    } catch (err) {
+      errors.push({ id, reason: (err as Error).message })
+    }
+  }
+
+  const result = { ok: errors.length === 0, regenerated, errors }
+  emit(flags, result, () => {
+    console.log(`tldr regenerate: ${regenerated.length} atom(s) updated using ${generator.name}`)
+    for (const r of regenerated) console.log(`  ✓ ${r.id} → ${r.path}`)
+    for (const e of errors) console.log(`  ✗ ${e.id} — ${e.reason}`)
+    if (regenerated.length > 0 && !dryRun) {
+      console.log('  remember: rebuild the index with `npm run msp:index`')
+    }
+  })
+  if (!result.ok) process.exit(1)
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────────

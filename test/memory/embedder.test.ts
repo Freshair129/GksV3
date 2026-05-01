@@ -107,3 +107,44 @@ describe('createEmbedder — Ollama with circuit breaker', () => {
     }
   })
 })
+
+describe('createNomicEmbedder dtype option', () => {
+  it('stamps non-fp32 dtype into the model id so manifests can disambiguate', async () => {
+    // Avoid pulling the 600MB model: just check the metadata derived
+    // from the dtype option. The pipeline is lazy, so creating the
+    // embedder doesn't trigger a download.
+    const { createNomicEmbedder } = await import('../../src/memory/vector/embedder-nomic.js')
+
+    const fp32 = createNomicEmbedder({ dtype: 'fp32' })
+    expect(fp32.model).toBe('nomic-ai/nomic-embed-text-v1.5')
+    expect(fp32.provider).toBe('nomic')
+    expect(fp32.dimension).toBe(768)
+
+    const q8 = createNomicEmbedder({ dtype: 'q8' })
+    expect(q8.model).toBe('nomic-ai/nomic-embed-text-v1.5@q8')
+    expect(q8.provider).toBe('nomic')
+    expect(q8.dimension).toBe(768)
+
+    const fp16 = createNomicEmbedder({ dtype: 'fp16' })
+    expect(fp16.model).toBe('nomic-ai/nomic-embed-text-v1.5@fp16')
+
+    const q4 = createNomicEmbedder({ dtype: 'q4' })
+    expect(q4.model).toBe('nomic-ai/nomic-embed-text-v1.5@q4')
+
+    const def = createNomicEmbedder()
+    expect(def.model).toBe('nomic-ai/nomic-embed-text-v1.5') // fp32 default
+  })
+
+  it('respects GKS_NOMIC_DTYPE env var when no option is passed', async () => {
+    const original = process.env['GKS_NOMIC_DTYPE']
+    process.env['GKS_NOMIC_DTYPE'] = 'q8'
+    try {
+      const { createNomicEmbedder } = await import('../../src/memory/vector/embedder-nomic.js')
+      const e = createNomicEmbedder()
+      expect(e.model).toBe('nomic-ai/nomic-embed-text-v1.5@q8')
+    } finally {
+      if (original === undefined) delete process.env['GKS_NOMIC_DTYPE']
+      else process.env['GKS_NOMIC_DTYPE'] = original
+    }
+  })
+})

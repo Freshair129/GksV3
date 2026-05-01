@@ -105,6 +105,13 @@ export interface EmbedderOptions {
   openaiModel?: string
   openaiBaseUrl?: string
   mockDimension?: number
+  /**
+   * Precision for the local nomic embedder. fp32 (default) preserves
+   * full quality at ~550MB; q8 (~140MB) trades <2% MTEB quality for a
+   * 4× smaller footprint and 2-3× CPU speedup. Read from
+   * `GKS_NOMIC_DTYPE` env var when not passed.
+   */
+  nomicDtype?: import('./embedder-nomic.js').NomicDtype
   /** For tests / pinned benchmarks — skip probing and force this provider. */
   forceProvider?: 'ollama' | 'openai' | 'mock'
   /**
@@ -138,11 +145,13 @@ export async function createEmbedder(opts: EmbedderOptions = {}): Promise<Embedd
   if (forced === 'mock') return mockEmbedder(opts.mockDimension ?? DEFAULT_MOCK_DIM)
   if (forced === 'openai') return openaiEmbedder(opts)
   if (forced === 'ollama') return ollamaEmbedder(opts)
-  if (forced === 'nomic') return createNomicEmbedder()
+  if (forced === 'nomic') {
+    return opts.nomicDtype ? createNomicEmbedder({ dtype: opts.nomicDtype }) : createNomicEmbedder()
+  }
 
   // Auto mode: nomic → Ollama → OpenAI → mock
   try {
-    const e = createNomicEmbedder()
+    const e = opts.nomicDtype ? createNomicEmbedder({ dtype: opts.nomicDtype }) : createNomicEmbedder()
     // warm-up probe — triggers download on first run
     await e.embed('ping')
     log.info('embedder: nomic selected (local, Thai+English)')

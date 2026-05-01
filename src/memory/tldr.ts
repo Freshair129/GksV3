@@ -19,10 +19,13 @@
  */
 
 import { createHash } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
+import { resolve as resolvePath } from 'node:path'
 
 import type { LlmClient } from './consolidator-llm.js'
 import { withRetry } from '../lib/retry.js'
 import { createLogger } from '../lib/logger.js'
+import { yamlLite } from '../lib/yaml-lite.js'
 
 const log = createLogger('memory:tldr')
 
@@ -198,4 +201,68 @@ export async function generateTldrStamp(
     summary_tldr_body_hash: bodyHash(body),
     summary_tldr_generated_at: new Date().toISOString(),
   }
+}
+
+// ─── in-place atom file rewriter ──────────────────────────────────────────
+
+const FRONTMATTER_DELIM_RX = /^---\n([\s\S]*?)\n---\n?/
+
+/**
+ * Reads the canonical atom file for `atomicId`, regenerates its TL;DR
+ * with the supplied generator, and rewrites the file with fresh
+ * `summary_tldr` / `summary_tldr_body_hash` / `summary_tldr_generated_at`
+ * frontmatter fields. Body is preserved verbatim.
+ *
+ * Used by `gks tldr regenerate` and by pre-commit / pre-push hooks
+ * (see CONTRIBUTING.md). Returns the absolute path of the rewritten
+ * file so callers can log or stage it.
+ *
+ * Throws if the atom does not exist in the index, or if the file does
+ * not contain a valid YAML frontmatter block.
+ */
+export async function regenerateTldrInPlace(
+  store: { root: string; atomic: { getEntry(id: string): { path: string } | undefined; lookup(id: string): Promise<{ path: string; type: string; title?: string; body: string } | null> } },
+  atomicId: string,
+  generator: TldrGenerator,
+): Promise<string> {
+  const entry = store.atomic.getEntry(atomicId)
+  if (!entry) {
+    throw new Error(`regenerateTldrInPlace: ${atomicId} not in atomic_index.jsonl`)
+  }
+  const note = await store.atomic.lookup(atomicId)
+  if (!note) {
+    throw new Error(`regenerateTldrInPlace: lookup returned null for ${atomicId}`)
+  }
+  const filePath = resolvePath(store.root, 'gks', entry.path)
+  const text = await readFile(filePath, 'utf8')
+  const m = FRONTMATTER_DELIM_RX.exec(text)
+  if (!m) {
+    throw new Error(`regenerateTldrInPlace: ${filePath} has no YAML frontmatter`)
+  }
+  const fmRaw = m[1] ?? ''
+  const bodyPart = text.slice(m[0].length)
+  const stamp = await generateTldrStamp(generator, bodyPart.trim(), {
+    ...(note.title ? { title: note.title } : {}),
+    type: note.type,
+  })
+
+  // Rewrite the frontmatter: drop any existing summary_tldr* lines
+  // (parsing line-by-line keeps unrelated formatting intact — fences,
+  // long arrays, JSON values), then append the fresh trio.
+  const stripped = fmRaw
+    .split('\n')
+    .filter((line) => !/^(summary_tldr|summary_tldr_body_hash|summary_tldr_generated_at)\s*:/.test(line))
+    .join('\n')
+    .trimEnd()
+  const appended =
+    yamlLite({
+      summary_tldr: stamp.summary_tldr,
+      summary_tldr_body_hash: stamp.summary_tldr_body_hash,
+      summary_tldr_generated_at: stamp.summary_tldr_generated_at,
+    }).trimEnd()
+  const newFm = (stripped ? stripped + '\n' : '') + appended
+  const out = `---\n${newFm}\n---\n${bodyPart}`
+  await writeFile(filePath, out, 'utf8')
+  log.info('tldr regenerated in place', { atomicId, path: filePath, generator: generator.name })
+  return filePath
 }

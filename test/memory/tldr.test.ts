@@ -389,3 +389,120 @@ describe('--tldr-staleness', () => {
     }
   }, 30_000)
 })
+
+describe('regenerateTldrInPlace', () => {
+  let cleanup: string[] = []
+
+  beforeEach(() => {
+    cleanup = []
+  })
+
+  afterEach(async () => {
+    for (const d of cleanup) await rm(d, { recursive: true, force: true })
+  })
+
+  async function setupAtom(
+    overrideFm?: { summary_tldr?: string; summary_tldr_body_hash?: string; summary_tldr_generated_at?: string },
+  ): Promise<{ root: string; store: MemoryStore; filePath: string }> {
+    const root = await mkdtemp(join(tmpdir(), 'gks-regen-'))
+    cleanup.push(root)
+    await mkdir(join(root, 'gks', 'insight'), { recursive: true })
+    const filePath = join(root, 'gks', 'insight', 'INSIGHT--REGEN-DEMO.md')
+    const fmLines = [
+      'id: INSIGHT--REGEN-DEMO',
+      'phase: 1',
+      'type: insight',
+      'status: stable',
+      'vault_id: default',
+      'title: Regen Demo',
+    ]
+    if (overrideFm?.summary_tldr) fmLines.push(`summary_tldr: ${overrideFm.summary_tldr}`)
+    if (overrideFm?.summary_tldr_body_hash)
+      fmLines.push(`summary_tldr_body_hash: "${overrideFm.summary_tldr_body_hash}"`)
+    if (overrideFm?.summary_tldr_generated_at)
+      fmLines.push(`summary_tldr_generated_at: "${overrideFm.summary_tldr_generated_at}"`)
+    await writeFile(
+      filePath,
+      [
+        '---',
+        ...fmLines,
+        '---',
+        '',
+        '# Regen Demo',
+        '',
+        'This is the body of the atom. We are testing that the regenerator produces a fresh summary.',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+    const indexerScript = resolve(__dirname, '..', '..', 'scripts', 'msp', 're-indexer.ts')
+    execFileSync('npx', ['tsx', indexerScript, `--root=${root}`], { stdio: 'pipe' })
+    const store = new MemoryStore({ root, embedder: mockEmbedder(64) })
+    await store.init()
+    return { root, store, filePath }
+  }
+
+  it('writes fresh summary_tldr / body_hash / generated_at and preserves body', async () => {
+    const { regenerateTldrInPlace } = await import('../../src/memory/tldr.js')
+    const { store, filePath } = await setupAtom({
+      summary_tldr: 'Old stale summary.',
+      summary_tldr_body_hash: 'deadbeef00000000',
+      summary_tldr_generated_at: '2026-01-01T00:00:00.000Z',
+    })
+    const result = await regenerateTldrInPlace(store, 'INSIGHT--REGEN-DEMO', heuristicTldrGenerator())
+    expect(result).toBe(filePath)
+    const text = await readFile(filePath, 'utf8')
+    // Old summary is gone, new summary appended.
+    expect(text).not.toContain('Old stale summary.')
+    expect(text).not.toContain('deadbeef00000000')
+    expect(text).toMatch(/summary_tldr:\s*This is the body of the atom/)
+    // Body preserved verbatim (intact post-frontmatter).
+    expect(text).toContain('# Regen Demo')
+    expect(text).toContain('This is the body of the atom.')
+  })
+
+  it('adds the trio when none was previously present', async () => {
+    const { regenerateTldrInPlace } = await import('../../src/memory/tldr.js')
+    const { store, filePath } = await setupAtom() // no TLDR fields
+    await regenerateTldrInPlace(store, 'INSIGHT--REGEN-DEMO', heuristicTldrGenerator())
+    const text = await readFile(filePath, 'utf8')
+    expect(text).toMatch(/summary_tldr:/)
+    expect(text).toMatch(/summary_tldr_body_hash:/)
+    expect(text).toMatch(/summary_tldr_generated_at:/)
+  })
+
+  it('end-to-end CLI: gks tldr regenerate <id> rewrites the file', async () => {
+    const { root, filePath } = await setupAtom({
+      summary_tldr: 'Stale.',
+      summary_tldr_body_hash: 'deadbeef00000000',
+      summary_tldr_generated_at: '2026-01-01T00:00:00.000Z',
+    })
+    const cliScript = resolve(__dirname, '..', '..', 'bin', 'gks.ts')
+    const stdout = execFileSync(
+      'npx',
+      ['tsx', cliScript, 'tldr', 'regenerate', 'INSIGHT--REGEN-DEMO', `--root=${root}`],
+      { stdio: 'pipe', encoding: 'utf8' },
+    )
+    expect(stdout).toMatch(/regenerate:\s*1 atom/)
+    expect(stdout).toContain('INSIGHT--REGEN-DEMO')
+    const text = await readFile(filePath, 'utf8')
+    expect(text).not.toContain('Stale.')
+    expect(text).toMatch(/summary_tldr:/)
+  }, 30_000)
+
+  it('end-to-end CLI: --all-stale picks up only stale atoms', async () => {
+    const { root } = await setupAtom({
+      summary_tldr: 'Stale summary.',
+      summary_tldr_body_hash: 'deadbeef00000000',
+      summary_tldr_generated_at: '2026-01-01T00:00:00.000Z',
+    })
+    const cliScript = resolve(__dirname, '..', '..', 'bin', 'gks.ts')
+    const stdout = execFileSync(
+      'npx',
+      ['tsx', cliScript, 'tldr', 'regenerate', '--all-stale', `--root=${root}`],
+      { stdio: 'pipe', encoding: 'utf8' },
+    )
+    expect(stdout).toMatch(/regenerate:\s*1 atom/)
+    expect(stdout).toContain('INSIGHT--REGEN-DEMO')
+  }, 30_000)
+})

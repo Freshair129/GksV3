@@ -62,3 +62,58 @@ If you need to land an urgent fix without writing the full chain of atoms immedi
 
 Failure to close the hotfix within 48 hours blocks any further commit on the
 affected files (`gks hotfix check`) and the CI gate.
+
+## Keeping `summary_tldr` fields fresh
+
+Atoms can carry an optional `summary_tldr` field (see [`ADR--SUMMARY-TLDR`](./gks/adr/ADR--SUMMARY-TLDR.md)). When the body of an atom changes, its TL;DR drifts — `gks validate --tldr-staleness` flags the mismatch. To regenerate on demand:
+
+```bash
+# Single atom
+npx tsx bin/gks.ts tldr regenerate FEAT--YOUR-FEATURE
+
+# Every atom whose body has drifted from its stored TL;DR hash
+npx tsx bin/gks.ts tldr regenerate --all-stale
+
+# Preview what would change without writing
+npx tsx bin/gks.ts tldr regenerate --all-stale --dry-run
+```
+
+Generator selection is automatic and follows the same env precedence as `gks inbound promote --generate-tldr`:
+
+| env                    | generator                                    |
+| ---------------------- | -------------------------------------------- |
+| `GKS_LLM_BASE_URL`     | OpenAI-compatible local SLM (Ollama, etc.)   |
+| `ANTHROPIC_API_KEY`    | Anthropic Messages API                        |
+| (none)                 | Heuristic — deterministic, zero LLM cost     |
+
+### Pre-commit hook integration (optional)
+
+To keep TL;DRs fresh automatically, drop a hook into `.git/hooks/pre-commit`:
+
+```bash
+#!/usr/bin/env bash
+# .git/hooks/pre-commit — regenerate TL;DRs for staged atoms
+set -euo pipefail
+
+# Which staged files are atoms? (gks/<type>/<id>.md)
+mapfile -t staged_atoms < <(git diff --cached --name-only --diff-filter=AM | \
+  grep -E '^gks/(concept|adr|blueprint|feat|frame|insight|fact|rule|hotfix)/.+\.md$' || true)
+
+if [[ ${#staged_atoms[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+# Map each path → atomic id (strip extension + leading dirs)
+ids=()
+for f in "${staged_atoms[@]}"; do
+  ids+=("$(basename "$f" .md)")
+done
+
+# Regenerate. Heuristic by default; export GKS_LLM_BASE_URL to use a
+# local SLM (~5s/atom) or ANTHROPIC_API_KEY for cloud.
+npx tsx bin/gks.ts tldr regenerate "${ids[@]}"
+npm run msp:index
+git add "${staged_atoms[@]}" gks/00_index/atomic_index.jsonl
+```
+
+The hook is intentionally **not** installed automatically — keeping TL;DRs perfectly fresh is a developer preference, not a hard correctness gate (the CI gate is `validate --tldr-staleness`, which can run as a soft warning rather than a blocker).

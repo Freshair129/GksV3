@@ -62,3 +62,55 @@ If you need to land an urgent fix without writing the full chain of atoms immedi
 
 Failure to close the hotfix within 48 hours blocks any further commit on the
 affected files (`gks hotfix check`) and the CI gate.
+
+## Releases (Changesets)
+
+GKS uses [Changesets](https://github.com/changesets/changesets) per
+`docs/adr/016-changesets-for-release.md`. Every non-trivial PR ships
+with a changeset declaring the bump type + user-visible summary.
+
+### Per-PR (contributor)
+
+```bash
+npx changeset            # interactive: pick major / minor / patch + write summary
+git add .changeset/<random-name>.md
+```
+
+Commit the changeset alongside the rest of the PR. CI does not require
+one (yet) — but PRs without a changeset won't move the version.
+
+### Per-release (maintainer)
+
+The release workflow (`.github/workflows/release.yml`) runs on every
+push to `main` and does one of two things:
+
+- **Pending changesets exist** → opens / updates a "Version Packages"
+  PR that bumps `package.json` + writes `CHANGELOG.md`. Review the
+  PR; merging it triggers the workflow again.
+- **No pending changesets, version already bumped** → publishes to
+  npm via `changeset publish`.
+
+### One-time maintainer setup
+
+Before the first release, set the following GitHub repo secrets:
+
+| Secret | Required? | Purpose |
+|---|---|---|
+| `NPM_TOKEN` | **yes** | npm publish token with access to `@evaai/gks`. Generate at https://www.npmjs.com/settings/<user>/tokens (type: Automation) |
+| `RELEASE_BOT_TOKEN` | optional | PAT for pushing the version-bump commit back to `main` without retriggering the workflow. If unset, the default `GITHUB_TOKEN` works but bypasses branch protection |
+
+### Publish checklist (local sanity)
+
+If publishing manually rather than via the workflow:
+
+```bash
+npm run typecheck && npm test                  # green
+npm pack --dry-run | tail -10                  # ~230 kB packed, ~204 files
+npm whoami                                     # logged in to npm
+npm publish --access=public --otp=XXXXXX       # publishes via prepublishOnly
+git tag -a v$(node -p "require('./package.json').version") -m "v$(node -p "require('./package.json').version")"
+git push origin --tags
+```
+
+`prepublishOnly` runs `typecheck && test && build` before publish, so a
+broken main can never accidentally hit npm.

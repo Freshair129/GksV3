@@ -1,0 +1,79 @@
+name: bench-nightly
+
+# Tiny-fixture smoke tests for the three benchmark runners. The full
+# datasets (HuggingFace LoCoMo, LongMemEval validation set, BEAM @ 10M
+# tokens) are out of scope here — those need real datasets + GPU
+# embedder time and are tracked under Phase 3 in `docs/ULTRAPLAN.md`.
+#
+# What this workflow ensures:
+#   1. Each runner can read its tiny fixture + emit a result
+#      summary without crashing.
+#   2. The mock embedder path stays wired (we run with GKS_EMBEDDER=mock
+#      to avoid Ollama / OpenAI dependencies in CI).
+#   3. Result artefacts upload so we can graph regressions over time
+#      once Phase 3 G3.4 (reproducible report) lands.
+#
+# Triggers:
+#   - Daily at 03:00 UTC (overlap-free with the regular `ci` workflow)
+#   - Manual dispatch for local debugging
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  bench-tiny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GKS_EMBEDDER: mock
+      GKS_LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Setup output dir
+        run: mkdir -p .bench-output
+
+      - name: LoCoMo (tiny)
+        run: |
+          npm run bench:locomo -- \
+            --dataset=./benchmarks/data/locomo-tiny.json \
+            --top-k=5 \
+            --threshold=-1 \
+            2>&1 | tee .bench-output/locomo-tiny.log
+
+      - name: LongMemEval (tiny)
+        run: |
+          npm run bench:longmemeval -- \
+            --dataset=./benchmarks/data/longmemeval-tiny.json \
+            --top-k=5 \
+            2>&1 | tee .bench-output/longmemeval-tiny.log
+
+      - name: BEAM (tiny)
+        run: |
+          npm run bench:beam -- \
+            --dataset=./benchmarks/data/beam-tiny.jsonl \
+            2>&1 | tee .bench-output/beam-tiny.log
+
+      - name: POC gate overhead bench
+        run: |
+          npx tsx scripts/poc/measure-gate-overhead.ts \
+            --iterations=200 \
+            --poc-count=50 \
+            --json > .bench-output/gate-overhead.json
+
+      - name: Upload bench artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-tiny-results
+          path: .bench-output/
+          retention-days: 30

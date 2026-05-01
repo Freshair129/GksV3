@@ -1,0 +1,56 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+# Permissions needed for changesets/action to:
+#   - read content (workflow + changesets)
+#   - create release PRs (when there are pending changesets)
+#   - publish to npm (via NPM_TOKEN secret — see docs/adr/016)
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use a deploy token so the bot can push back to main with the
+          # version bump without retriggering this workflow.
+          # token: ${{ secrets.RELEASE_BOT_TOKEN }}   # uncomment when secret is set
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Create release PR or publish to npm
+        uses: changesets/action@v1
+        with:
+          # Aggregates pending .changeset/*.md → bumps package.json + writes
+          # CHANGELOG.md → opens / updates a "Version Packages" PR. When that
+          # PR is merged, this workflow re-fires and runs `publish` instead.
+          version: npx changeset version
+          publish: npx changeset publish
+          commit: 'chore(release): version packages'
+          title: 'chore(release): version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

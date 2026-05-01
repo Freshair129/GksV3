@@ -86,6 +86,41 @@ The unit tests for the gate already cover the
 `test/cli/gks-poc.test.ts > poc check exits 1 with diagnostic …`),
 so we have coverage of the core mechanic.
 
+## Interim result — synthetic measurement (2026-04-30)
+
+Per the "rigorous default" guideline, partial evidence is recorded
+*before* closure rather than waiting passively for the real-world
+data.
+
+`scripts/poc/measure-gate-overhead.ts` (added 2026-04-30) measures
+`PocStore.listOverdue()` — the same code path `gks poc check` walks.
+Three scenarios across 100 iterations after a 5-iteration warmup:
+
+| Scenario             | n   | p50    | p95    | p99    | max    | mean   |
+|----------------------|-----|--------|--------|--------|--------|--------|
+| empty `gks/poc/`     | 100 | 0.0ms  | 0.1ms  | 0.2ms  | 0.2ms  | 0.1ms  |
+| 50 future-deadline   | 100 | 17.7ms | 24.5ms | 28.4ms | 33.5ms | 18.7ms |
+| 50 + 1 overdue       | 100 | 17.4ms | 20.9ms | 21.6ms | 22.7ms | 17.5ms |
+
+**Worst-case p95 = 24.5ms** — 20× under the 500ms acceptance
+criterion. Linear scaling with POC count is the expected pattern
+(file-per-atom IO).
+
+This evidence covers acceptance criteria #3 (p95 overhead) and
+partially #5 (handles the three storage shapes — empty / future-only
+/ with-overdue). Criteria #1 (50+ commits without false positives),
+#2 (true-positive on overlap), and #4 (error message format) still
+need real-world data and are why the POC stays `open` until the
+2026-07-15 deadline.
+
+Reproduce:
+
+```sh
+npm run poc:bench-gate -- --iterations=100 --poc-count=50
+# or:
+npx tsx scripts/poc/measure-gate-overhead.ts --iterations=100 --json
+```
+
 ## Result
 
 (Filled at closure. Expected outcomes:)

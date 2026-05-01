@@ -51,6 +51,12 @@ import { InboundQueue } from './inbound.js'
 import { ATOMIC_ID_PATTERN, isAtomicId } from './atomic-id.js'
 import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
 import {
+  CommunityCache,
+  summarizeCommunity as doSummarizeCommunity,
+  type CommunityRequest,
+  type CommunityResult,
+} from './community.js'
+import {
   withCache,
   type ObsidianAdapter,
   type ObsidianSearchHit,
@@ -609,6 +615,19 @@ export class MemoryStore {
   async appendTrace(sessionId: string, step: Omit<TraceStep, 'session_id' | 't'> & { t?: string }): Promise<void> {
     await this.episodic.appendTrace(sessionId, step)
   }
+
+  /**
+   * Walk structural crosslinks from a seed atom and synthesise a single
+   * narrative over the resulting community. Implements
+   * BLUEPRINT--COMMUNITY-SUMMARIES — pure read-side, in-memory cache,
+   * no schema impact.
+   */
+  async summarizeCommunity(req: CommunityRequest): Promise<CommunityResult> {
+    await this.atomic.loadIndex()
+    return doSummarizeCommunity({ atomic: this.atomic, cache: this._communityCache }, req)
+  }
+
+  private readonly _communityCache: CommunityCache = new CommunityCache()
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
@@ -840,6 +859,20 @@ export {
   heuristicTldrGenerator,
 } from './tldr.js'
 export type { LlmTldrOptions, TldrGenerator, TldrStamp } from './tldr.js'
+export {
+  CommunityCache,
+  DEFAULT_COMMUNITY_EDGES,
+  buildCommunityPrompt,
+  summarizeCommunity,
+  walkCommunity,
+} from './community.js'
+export type {
+  CommunityAtomic,
+  CommunityEdgeKey,
+  CommunityRequest,
+  CommunityResult,
+  SummarizeCommunityDeps,
+} from './community.js'
 export {
   createMockObsidianAdapter,
   createRestObsidianAdapter,

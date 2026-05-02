@@ -999,6 +999,16 @@ export {
   parseLlmResponse as parseLlmBoundaryResponse,
 } from './episode-boundary-llm.js'
 export type { LlmBoundaryDetectorOptions } from './episode-boundary-llm.js'
+export {
+  buildPrompt as buildSemanticFramesPrompt,
+  createHeuristicSemanticFramesInferrer,
+  createLlmSemanticFramesInferrer,
+  parseFramesResponse,
+} from './semantic-frames.js'
+export type {
+  LlmSemanticFramesOptions,
+  SemanticFramesInferrer,
+} from './semantic-frames.js'
 export type {
   EpisodeBoundaryDetector,
   EpisodeBoundaryOptions,

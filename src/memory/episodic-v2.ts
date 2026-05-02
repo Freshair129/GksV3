@@ -259,6 +259,31 @@ export class EpisodicLayerV2 {
     await writeFile(this.episodesFile(sessionId), lines + '\n', 'utf8')
   }
 
+  /**
+   * Stamp `semantic_frames` onto each turn in `turns.jsonl` (single
+   * rewrite). Per BLUEPRINT--SEMANTIC-FRAMES — `framesPerTurn[i]`
+   * applies to the i-th turn in the existing `turns.jsonl` order.
+   * `undefined` / empty arrays leave the existing turn unchanged.
+   */
+  async patchTurnFrames(
+    sessionId: string,
+    framesPerTurn: (string[] | undefined)[],
+  ): Promise<void> {
+    const turns = await this.listTurns(sessionId)
+    if (turns.length !== framesPerTurn.length) {
+      throw new Error(
+        `patchTurnFrames: framesPerTurn length (${framesPerTurn.length}) must match turns.length (${turns.length})`,
+      )
+    }
+    const updated = turns.map((t, i) => {
+      const f = framesPerTurn[i]
+      if (!f || f.length === 0) return t
+      return { ...t, semantic_frames: [...f] }
+    })
+    const lines = updated.map((t) => JSON.stringify(t)).join('\n')
+    await writeFile(this.turnsFile(sessionId), lines + '\n', 'utf8')
+  }
+
   // ─── _index.jsonl ─────────────────────────────────────────────────────
 
   /**

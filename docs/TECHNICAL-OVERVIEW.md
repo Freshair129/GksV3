@@ -44,7 +44,7 @@ GKS is **paradigm-agnostic by design**. It works equally well with a
 single-tenant CLI agent, a multi-tenant SaaS deployment, an MSP-shaped
 Memory OS layered above, or a research project with a custom
 consolidation cascade. The narrow contract surface (~30 type
-declarations, 5 plugin interfaces, 8 MCP tools) is deliberate.
+declarations, 5 plugin interfaces, 23 MCP tools) is deliberate.
 
 ---
 
@@ -836,7 +836,7 @@ MCP-aware client — Claude Code, Cursor, custom agents) and a CLI
 ### 8.1 MCP server
 
 `bin/gks-mcp-server.ts` — stdio-only transport per ADR-007 (HTTP
-deferred). Eight tools:
+deferred). 23 tools:
 
 | Tool | Verb | Purpose |
 |---|---|---|
@@ -846,6 +846,22 @@ deferred). Eight tools:
 | `gks_lookup_by_symbol` | read | reverse citation lookup (ADR-010) |
 | `gks_propose_inbound` | write | candidate atom into inbound queue |
 | `gks_reflect` | read+write | run Consolidator on a session |
+| `gks_verify_flow` | read | walk crosslinks; ok/errors (ADR-014) |
+| `gks_validate_links` | read | full-tree crosslink check (ADR-014) |
+| `gks_new_feature` | write | scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound |
+| `gks_hotfix_open` | write | open HOTFIX-- escape-hatch atom (48 h) |
+| `gks_hotfix_list` | read | list open / overdue hotfixes |
+| `gks_hotfix_close` | write | close a hotfix with `resolved_by` |
+| `gks_poc_open` | write | open time-boxed POC (ADR--ADD-POC-PREFIX) |
+| `gks_poc_start` | write | transition POC `open → running` |
+| `gks_poc_list` | read | list POCs (overdue / openOnly filters) |
+| `gks_poc_close` | write | close POC (`validated`/`invalidated`/`abandoned`) |
+| `gks_issue_new` | write | create ISSUE-- in self-hosted tracker |
+| `gks_issue_list` | read | list issues (status / priority / assignee filters) |
+| `gks_issue_show` | read | full issue + body sections |
+| `gks_issue_comment` | write | append to `## Discussion` |
+| `gks_issue_status` | write | transition status |
+| `gks_issue_close` | write | close + optional `resolved_by` crosslink |
 | `gks_recall_cross_namespace` | read (admin) | bypass namespace filter (gated by `exposeCrossNamespace: true`) |
 
 Each tool uses Zod-strict input schemas; the SDK enforces them before
@@ -1404,7 +1420,7 @@ layers:   atomic · vector · episodic · obsidian
 extras:   IssueStore · HotfixStore (light-tier — ADR-012, ADR-014)
 gates:    verifyFlow · validateLinks · scaffoldNewFeature (ADR-014)
 plugins:  VectorBackend · GraphBackend · Reranker · LlmClient · ObsidianAdapter · Embedder
-surfaces: TypeScript API · MCP server (8 tools) · CLI (npx gks)
+surfaces: TypeScript API · MCP server (23 tools) · CLI (npx gks)
 ops:      audit · cost · OTel · retry · circuit-breaker · schema-version
 backends: JSONL · HNSW · pgvector · Postgres-graph · Obsidian-REST · Obsidian-MCP-stdio
 boundary: MSP / Memory OS above (ADR-008) · GitNexus alongside (ADR-009)

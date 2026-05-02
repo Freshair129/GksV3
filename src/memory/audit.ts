@@ -40,6 +40,9 @@ export type AuditOp =
   | 'issue_close'
   | 'hotfix_open'
   | 'hotfix_close'
+  | 'poc_open'
+  | 'poc_start'
+  | 'poc_close'
 
 export interface AuditEvent {
   /** ISO-8601 UTC timestamp. */

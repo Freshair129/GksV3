@@ -89,6 +89,17 @@ describe('gks-mcp-server', () => {
         'gks_episodic_migrate',
         'gks_episodic_list',
         'gks_lookup_by_atom',
+        // POC + Issue (from main)
+        'gks_poc_open',
+        'gks_poc_start',
+        'gks_poc_list',
+        'gks_poc_close',
+        'gks_issue_new',
+        'gks_issue_list',
+        'gks_issue_show',
+        'gks_issue_comment',
+        'gks_issue_status',
+        'gks_issue_close',
       ].sort(),
     )
   })

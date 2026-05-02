@@ -205,6 +205,85 @@ blocks any further changes to the file until backfill atoms exist
 
 ---
 
+## The POC escape hatch (time-boxed hypothesis test)
+
+Different shape from hotfix: hotfix is "ship code now, write atoms
+later"; POC is "before any P3 plan, prove the assumption holds." Use
+when you have a falsifiable hypothesis with a hard deadline and don't
+want to commit to a `BLUEPRINT--` until the experiment has run.
+
+Light-tier per `ADR--ADD-POC-PREFIX` — direct write OK, no inbound
+queue. Lifecycle: `open → running → validated | invalidated | abandoned`.
+
+### 1. Open the POC
+
+```sh
+gks poc open rerank-latency \
+  --title="BM25 reranker recovers ≥80% of cross-encoder top-3 quality" \
+  --hypothesis="BM25 with top-50 candidate pool retains cross-encoder \
+                top-3 recall@10 within 5 percentage points at 10× lower latency" \
+  --acceptance-criterion="recall@10 within 5pp on LongMemEval validation set" \
+  --acceptance-criterion="p99 latency < 1/10th of cross-encoder baseline" \
+  --acceptance-criterion="reproducible from CI fixture; no proprietary data" \
+  --deadline=2026-05-30T00:00:00Z \
+  --file=benchmarks/longmemeval/runner.ts \
+  --file=src/memory/rerank.ts \
+  --derives-from=CONCEPT--RERANK-PERFORMANCE \
+  --root=.
+```
+
+`acceptance-criterion` is required (≥1) and `deadline` is required —
+both make the POC falsifiable + finite from day one.
+
+### 2. Move it to running when the experiment actually starts
+
+```sh
+gks poc start POC--RERANK-LATENCY --root=.
+```
+
+Optional but useful — `gks poc list --open` then shows `running`
+status and `gks_poc_*` MCP tools surface the same signal to agents.
+
+### 3. List active / overdue
+
+```sh
+gks poc list --open --root=.            # status in {open, running}
+gks poc list --overdue --root=.         # past deadline + not closed
+```
+
+### 4. Close with a resolution
+
+```sh
+gks poc close POC--RERANK-LATENCY \
+  --resolution=validated \
+  --feeds-into=ADR--RERANK-CHEAP-DEFAULT \
+  --produces=AUDIT--RERANK-RESULTS \
+  --notes="recall@10=0.83, p99=42ms vs cross-encoder 487ms; ship as default" \
+  --root=.
+```
+
+Resolution is one of `validated` / `invalidated` / `abandoned` — the
+last covers "deprioritised before we knew."
+
+### 5. If the deadline expires
+
+`gks poc check --file=src/memory/rerank.ts` exits 1. The pre-commit
+hook (`examples/drift-detection/hotfix-gate.sh` runs both `hotfix
+check` and `poc check`) blocks any further changes to listed files
+until either the POC is closed or the file is unstaged from the
+commit. Mirror of the hotfix gate by design.
+
+### When to choose POC-- vs HOTFIX-- vs straight CONCEPT→ADR
+
+| Situation | Use |
+|---|---|
+| Prod is down, ship the fix now, write atoms later | `HOTFIX--` (48 h) |
+| Hypothesis is testable, has a deadline, may be wrong | `POC--` (your deadline) |
+| Direction is decided; just plan the build | `CONCEPT--` → `ADR--` → `BLUEPRINT--` |
+| Idea you don't yet trust enough to commit to | `IDEA--` (P0) |
+
+---
+
 ## Agent Rule (§6.3) as a single command
 
 The four-step rule the master spec imposes on every agent before
@@ -307,6 +386,9 @@ gks validate --links            # all crosslinks across the index
 gks issue new "..." --priority=high
 gks hotfix open <SHA> --title="..." --file=...
 gks hotfix close HOTFIX--XXX --resolved-by=<ID>
+gks poc open <slug> --hypothesis="..." --acceptance-criterion="..." --deadline=<ISO>
+gks poc start POC--SLUG
+gks poc close POC--SLUG --resolution=validated|invalidated|abandoned
 
 # Maintain
 npm run msp:index             # rebuild atomic_index.jsonl

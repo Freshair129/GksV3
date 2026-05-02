@@ -31,7 +31,7 @@ Each item is a self-contained backend that drops into an existing interface.
 ### [x] B.1 — pgvector backend
 ### [x] B.2 — HNSW in-process backend
 ### [x] B.3a — Postgres graph backend 🌟
-### [ ] B.3b — Kuzu embedded graph backend (POSTPONED — See ADR-016)
+### [ ] B.3b — Kuzu embedded graph backend (Alternative/Optional)
 ### [x] B.4 — MCP-stdio transport for Obsidian
 ### [x] B.5 — Cross-encoder reranker fixtures
 
@@ -45,7 +45,7 @@ Targets are derived from the user spec (§5) and SOTA references
 ### [/] G3.1 — LoCoMo against full HuggingFace dataset
 ### [/] G3.2 — LongMemEval (full set)
 ### [/] G3.3 — BEAM @ 10M tokens
-### [x] G3.4 — Reproducible benchmark report
+### [/] G3.4 — Reproducible benchmark report
 
 
 - Single command: `make benchmarks` produces JSON + markdown summary
@@ -74,12 +74,14 @@ Targets are derived from the user spec (§5) and SOTA references
 
 ## Phase 6 — Release `[IN PROGRESS]`
 
-### [x] R.1 — semver + changelog
-- Current version: **v3.5.4**
-- Needs: `changesets` setup for automated releases
+### [/] R.1 — semver + changelog
+- Current version (`package.json`): **v3.5.5** (most recent git tag: `v3.6.0`)
+- Changesets scaffolded in `.changeset/` per `docs/adr/016-changesets-for-release.md`
+- Awaiting maintainer activation: `npm install --save-dev @changesets/cli` + CI workflow
 
 ### [/] R.2 — npm publish
 - Ready to publish under `@evaai/gks`
+- Blocked on R.1 activation (publish trigger lives in the same workflow)
 
 ---
 
@@ -125,7 +127,7 @@ benchmark run.
 |---|---|
 | **Cut FalkorDB** (was B.3 in v1) | SSPL license blocks SaaS, no native bi-temporal support, requires running a separate Redis-protocol service. |
 | **B.3a Postgres tables** chosen as primary | Free if B.1 ships first (shared instance); transactional consistency with pgvector; PostgreSQL license is permissive; SQL recursive CTEs handle our BFS needs. |
-| **B.3b Kuzu** postponed (ADR-016) | Overkill for MVP; coverage provided by In-memory + Postgres; focus on lean release. |
+| **B.3b Kuzu** retained as alternative | For users who want embedded Cypher without Postgres. MIT license, official Node.js binding, single-file persistence. |
 | **Skip Neo4j** | Overkill for our scale (≤ 10M edges), heavy ops, AGPL/commercial license drama. |
 | **Skip Apache AGE** | Postgres extension is finicky, version conflicts with pgvector reported in the wild. |
 
@@ -144,4 +146,5 @@ These are out of scope for the SOTA-production milestone but worth tracking:
 
 ---
 
-*See `BLUEPRINT--memory` for layer specifications.*
+*See `BLUEPRINT--memory` for layer specifications and
+`FRAME--TRI-BRAIN-ARCHITECTURE` for the broader system context.*

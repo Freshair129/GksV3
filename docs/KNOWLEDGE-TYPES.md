@@ -26,6 +26,7 @@ the answer is here. Templates for each prefix live in
 | `PARAMS--` | Implementation | Constants / business config |
 | `FRAME--` | Implementation | Code standards / framework rules |
 | `BLUEPRINT--` | Implementation | YAML implementation plan |
+| `POC--` | Implementation | Time-boxed hypothesis-test atom (light-tier — ADR--ADD-POC-PREFIX) |
 | `AUDIT--` | Implementation | Test results / quality report |
 | `HOTFIX--` | Ops | Hotfix escape-hatch atom (48h backfill window — ADR-014) |
 
@@ -128,6 +129,25 @@ where most contributions go.
 - **Don't use for:** prose specs — those are `FEAT--`.
 - **Phase:** P3.
 - **Required fields:** `metadata`, `architectural_pattern`, `data_logic`, `geography`, `api_contracts`, `verification_plan`.
+
+### `POC--` · time-boxed hypothesis-test atom
+- **Use for:** a falsifiable experiment with a deadline — proving (or
+  disproving) an assumption before it locks in as `ADR--` / `BLUEPRINT--`.
+- **Don't use for:** the resulting decision (use `ADR--`) or the
+  verification *result* of an already-decided plan (use `AUDIT--`).
+- **Phase:** P1 (between `CONCEPT--` and `BLUEPRINT--`).
+- **Tier:** **light** — direct write OK; schema-validated; lifecycle-enforced.
+- **Status values:** `open` → `running` → terminal: `validated` /
+  `invalidated` / `abandoned`.
+- **Required fields:** `hypothesis` (one paragraph, falsifiable),
+  `acceptance_criteria` (≥1 measurable check), `time_box.deadline`
+  (ISO timestamp).
+- **Crosslinks:** `derives_from: [CONCEPT--…]`, `produces:
+  [BLUEPRINT--…, AUDIT--…]`, `feeds_into: [ADR--…]` (filled at close).
+- **Overdue policy:** after `time_box.deadline` with non-terminal status,
+  the pre-commit hook blocks commits touching `linked_symbols` paths
+  (mirrors `HOTFIX--` 48 h window — ADR-014). See
+  `ADR--ADD-POC-PREFIX` for full lifecycle rationale.
 
 ### Microtasks (`T*.task.yaml`) — **not atoms**
 - **Why:** task state churns hourly (assigned / in-progress / blocked /
@@ -323,6 +343,29 @@ These have `MSP-` prefix and live in process-tracking storage, not in
         ↓ Auto-derived?
         └── INSIGHT-- · FACT-- · RULE--
 ```
+
+## Rejected proposals
+
+These prefixes were considered and **rejected** because they overlapped
+with existing atoms or carried no genuinely new lifecycle. The taxonomy
+deliberately stays narrow per ADR-008 ("contract surface stays narrow")
+and ADR-012. Use the column on the right instead.
+
+| Considered | Use instead | Rationale |
+|---|---|---|
+| `CONCERN--` | `RISK--` (before) / `ISSUE--` (during) / `INC--` (after) / `GUARDRAIL--` / `POLICY--` | "concern" is a *state* of knowledge, not a *type*; phase-of-concern maps cleanly onto existing prefixes |
+| `NOTE--` | `INSIGHT--` (auto-derived) / inbound-queue review comment / a tiny `ADR--` | too vague — would become a dumping ground; observation atoms exist; review comments belong in queue, not `gks/` |
+| `MCP--` | `PROTOCOL--` (handshake) / `FEAT--` (per-tool) / `SKILL--` (agent capability) / `ENDPOINT--` (single op) | MCP is *transport*, not *knowledge* — its decisions live in `ADR--` (cf. ADR-007), per-tool docs in `FEAT--`, and contracts in `PROTOCOL--` |
+| `HYPOTHESIS-- / ASSUMPTION--` | `## Hypothesis` section in `CONCEPT--` / `## Assumptions` in `BLUEPRINT--` / `RISK--` (negative) / **`POC--`** (testable) | a hypothesis is a *state* (`epistemic_status: hypothesis → established → locked`), not a *type*; if it's testable with a deadline, that's `POC--` |
+| `SOLUTION--` | `ADR--` with `crosslinks.resolves: [INC--, ISSUE--]` | solutions are decisions in disguise; ADR carries the right shape (decision + alternatives + consequences) |
+| `TASK--` | (none — deprecated by ADR-015) | task state churns hourly; lives at the orchestrator / MSP / external tracker, not in `gks/` |
+
+If you're proposing a new prefix and it doesn't survive a row-by-row
+comparison against this table *plus* the ADR-008 anti-bloat test, write
+the proposal as a new `ADR--` (mirroring `ADR--ADD-POC-PREFIX` for
+shape) and keep the bar high: a new prefix is only worth its weight if
+it carries lifecycle, validation, or storage that no existing atom
+captures.
 
 ## See also
 

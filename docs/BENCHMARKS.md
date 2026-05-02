@@ -103,6 +103,38 @@ provenance (git SHA, dirty flag, Node version, platform, model versions).
 Per-runner extras (e.g. BEAM's `--query-limit`, `--queries`, `--seed`) are
 documented in each runner's header comment.
 
+## Tiny-fixture smoke mode (CI)
+
+Every runner ships with a small in-repo fixture so the runner code path
+stays exercised in CI even without a real dataset. The fixtures live at:
+
+- `benchmarks/data/locomo-tiny.json`
+- `benchmarks/data/longmemeval-tiny.json`
+- `benchmarks/data/beam-tiny.jsonl`
+
+Two CI workflows hit them:
+
+- `.github/workflows/ci.yml` — runs the **LoCoMo tiny smoke** on every
+  PR + push. Fast, blocks merge if the runner crashes.
+- `.github/workflows/bench-nightly.yml` — runs **all three runners**
+  plus `scripts/poc/measure-gate-overhead.ts`, uploads
+  `.bench-output/*` as a 30-day artefact. Scheduled at 03:00 UTC,
+  also dispatchable manually.
+
+The tiny-mode results are NOT a SOTA claim — they verify the runners
+still work end-to-end with the mock embedder. Real-scale numbers
+(Phase 3 G3.1–G3.3) need the full datasets and live in a separate
+opt-in workflow with self-hosted runners.
+
+Run any tiny smoke locally:
+
+```sh
+npm run bench:locomo     -- --dataset=./benchmarks/data/locomo-tiny.json --top-k=5 --threshold=-1
+npm run bench:longmemeval -- --dataset=./benchmarks/data/longmemeval-tiny.json --top-k=5
+npm run bench:beam       -- --dataset=./benchmarks/data/beam-tiny.jsonl
+npm run poc:bench-gate   -- --iterations=100 --poc-count=50
+```
+
 ## What's missing
 
 - **Cross-runner consolidator metric.** The Consolidator Three-Gate filter

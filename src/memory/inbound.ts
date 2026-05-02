@@ -184,6 +184,11 @@ export class InboundQueue {
       'summary_tldr',
       'summary_tldr_body_hash',
       'summary_tldr_generated_at',
+      // POC-- specific (ADR--ADD-POC-PREFIX)
+      'hypothesis',
+      'acceptance_criteria',
+      'time_box',
+      'resolution',
     ]) {
       if (fm[k] !== undefined) promoted[k] = fm[k]
     }

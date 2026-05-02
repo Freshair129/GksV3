@@ -47,6 +47,7 @@ export type AtomicType =
   | 'fact'
   | 'insight'
   | 'hotfix'
+  | 'poc'
   | string
 
 /** One line in gks/00_index/atomic_index.jsonl */

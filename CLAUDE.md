@@ -11,7 +11,7 @@ bi-temporal versioning, and pluggable backends.
 
 ```sh
 npm run typecheck          # tsc --noEmit (run before every commit)
-npm test                   # vitest run — 321 tests
+npm test                   # vitest run — 462 tests
 npm run build              # tsc -p tsconfig.build.json
 npm run quickstart         # end-to-end demo
 
@@ -58,6 +58,24 @@ gks hotfix close <sha> --root=.                    # mark resolved after backfil
 
 After `valid_to` the pre-commit hook blocks further commits on the
 affected files until CONCEPT/ADR/BLUEPRINT are written and stable.
+
+### POC — time-boxed hypothesis test (light-tier, ADR--ADD-POC-PREFIX)
+
+For experiments with a falsifiable hypothesis and a hard deadline:
+
+```sh
+gks poc open <slug> --hypothesis="..." \
+  --acceptance-criterion="..." --acceptance-criterion="..." \
+  --deadline=<ISO> [--file=...] [--derives-from=CONCEPT--...] --root=.
+gks poc start POC--<SLUG> --root=.                # open → running
+gks poc list [--overdue] [--open] --root=.
+gks poc close POC--<SLUG> --resolution=validated|invalidated|abandoned \
+  [--feeds-into=ADR--...] [--produces=AUDIT--...] --root=.
+```
+
+After `time_box.deadline` with no closure, the pre-commit hook blocks
+commits touching the experiment's `linked_symbols` paths until the POC
+is closed (mirrors the HOTFIX gate).
 
 ---
 
@@ -167,10 +185,18 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`src/memory/audit.ts`](./src/memory/audit.ts) | Append-only audit log |
 | [`src/hotfix/store.ts`](./src/hotfix/store.ts) | `HotfixStore` — open / list / listOverdue / close |
 | [`src/hotfix/types.ts`](./src/hotfix/types.ts) | `Hotfix` interface, `HOTFIX_BACKFILL_MS`, `isOverdue` |
+| [`src/poc/store.ts`](./src/poc/store.ts) | `PocStore` — open / start / close / list / listOverdue |
+| [`src/poc/types.ts`](./src/poc/types.ts) | `Poc` / `PocStatus`, `validatePoc`, `isOverdue`, `isClosed` |
 | [`src/issue/store.ts`](./src/issue/store.ts) | `IssueStore` — ISSUE-- lifecycle |
 | [`src/issue/types.ts`](./src/issue/types.ts) | `Issue` interface and status types |
+| [`src/memory/community.ts`](./src/memory/community.ts) | `summarizeCommunity` (structural/semantic/hybrid) + LRU cache |
+| [`src/memory/community-cache-disk.ts`](./src/memory/community-cache-disk.ts) | `DiskCommunityCache` + `TieredCommunityCache` |
+| [`src/memory/community-detect.ts`](./src/memory/community-detect.ts) | `detectCommunities` (Louvain-lite) + `labelCommunities` |
+| [`src/memory/episodic-v2.ts`](./src/memory/episodic-v2.ts) | `EpisodicLayerV2` (3-doc split) + `scanEpisodicForAtom` |
+| [`src/memory/episode-boundary.ts`](./src/memory/episode-boundary.ts) | `detectEpisodeBoundaries` (time-gap / semantic / explicit) |
+| [`src/memory/tldr.ts`](./src/memory/tldr.ts) | `TldrGenerator` + `regenerateTldrInPlace` |
 | [`src/scaffold/new-feature.ts`](./src/scaffold/new-feature.ts) | `scaffoldNewFeature()` — drops 4 inbound candidates |
-| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 13 tools exposed over stdio |
+| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 30 tools exposed over stdio |
 | [`src/lib/retry.ts`](./src/lib/retry.ts) | Exponential-backoff retry |
 | [`src/lib/circuit-breaker.ts`](./src/lib/circuit-breaker.ts) | Circuit breaker |
 | [`src/lib/telemetry.ts`](./src/lib/telemetry.ts) | OTel API helpers |
@@ -187,6 +213,7 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`test/memory/`](./test/memory/) | Core retain / recall / reflect / inbound / promote |
 | [`test/memory/inbound-promote.test.ts`](./test/memory/inbound-promote.test.ts) | `InboundQueue.list / readById / promote` contract |
 | [`test/hotfix/`](./test/hotfix/) | `HotfixStore` open / list / overdue / close |
+| [`test/poc/`](./test/poc/) | `PocStore` open / start / close / list / overdue / roundtrip |
 | [`test/issue/`](./test/issue/) | `IssueStore` lifecycle |
 | [`test/mcp/`](./test/mcp/) | MCP server tools end-to-end (in-process transport) |
 | [`test/cli/`](./test/cli/) | CLI commands via subprocess |
@@ -224,7 +251,7 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 
 ---
 
-## MCP tools (13 total)
+## MCP tools (30 total)
 
 | Tool | Purpose |
 |------|---------|
@@ -240,4 +267,21 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 | `gks_hotfix_open` | Open a HOTFIX-- atom (48 h backfill window) |
 | `gks_hotfix_list` | List open / overdue hotfixes |
 | `gks_hotfix_close` | Mark a hotfix resolved |
+| `gks_poc_open` | Open a time-boxed POC (hypothesis + deadline) |
+| `gks_poc_start` | Transition a POC `open → running` |
+| `gks_poc_list` | List POCs (overdue / openOnly filters) |
+| `gks_poc_close` | Close a POC (resolution: validated/invalidated/abandoned) |
+| `gks_issue_new` | Create an `ISSUE--` atom |
+| `gks_issue_list` | List issues (status / priority / label / assignee filters) |
+| `gks_issue_show` | Read full issue + body sections |
+| `gks_issue_comment` | Append to `## Discussion` (chronological) |
+| `gks_issue_status` | Transition status (open/triaged/in_progress/blocked/closed/wontfix) |
+| `gks_issue_close` | Close + optional `resolved_by` crosslink |
+| `gks_tldr_regenerate` | Regenerate `summary_tldr` (single id or `--all-stale`) |
+| `gks_community_summarize` | Synthesise narrative across an atom community (structural/semantic/hybrid) |
+| `gks_community_detect` | Auto-detect clusters (Louvain-lite) + optional heuristic labels |
+| `gks_episodic_show` | Read v2 episodic session (header + episodes + optional turns) |
+| `gks_episodic_migrate` | Re-emit v1 markdown into v2 3-doc layout |
+| `gks_episodic_list` | List all v2 sessions from `_index.jsonl` |
+| `gks_lookup_by_atom` | Reverse lookup: episodes/turns citing an atom |
 | `gks_recall_cross_namespace` | Admin: cross-tenant recall (gated) |

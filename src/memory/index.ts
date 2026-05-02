@@ -1009,6 +1009,16 @@ export type {
   LlmSemanticFramesOptions,
   SemanticFramesInferrer,
 } from './semantic-frames.js'
+export {
+  ATOM_REFS_FILENAME,
+  appendIndexRefs,
+  expandEpisodeCrosslinks,
+  expandTurnCrosslinks,
+  loadIndexForAtom,
+  readAllRefs,
+  reindexEpisodicAtoms,
+} from './episodic-atom-index.js'
+export type { AtomRef } from './episodic-atom-index.js'
 export type {
   EpisodeBoundaryDetector,
   EpisodeBoundaryOptions,

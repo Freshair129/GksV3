@@ -88,6 +88,7 @@ describe('gks-mcp-server', () => {
         'gks_episodic_show',
         'gks_episodic_migrate',
         'gks_episodic_list',
+        'gks_episodic_reindex',
         'gks_lookup_by_atom',
         // POC + Issue (from main)
         'gks_poc_open',

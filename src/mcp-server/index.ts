@@ -636,6 +636,21 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     },
   )
 
+  // gks_episodic_reindex — rebuild _atom_refs.jsonl from source files.
+  server.registerTool(
+    'gks_episodic_reindex',
+    {
+      description:
+        'Rebuild the persisted reverse atom-refs index (_atom_refs.jsonl) by walking every v2 session. Use after a manual edit, after episodic migrate, or for periodic drift cleanup. Returns counts of refs written + sessions scanned.',
+      inputSchema: z.object({}).strict(),
+    },
+    async () => {
+      const { reindexEpisodicAtoms } = await import('../memory/episodic-atom-index.js')
+      const result = await reindexEpisodicAtoms(opts.store.episodicV2)
+      return jsonReply({ ok: true, ...result })
+    },
+  )
+
   // gks_poc_open (ADR--ADD-POC-PREFIX)
   server.registerTool(
     'gks_poc_open',

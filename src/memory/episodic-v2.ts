@@ -165,6 +165,12 @@ export class EpisodicLayerV2 {
       ...(episode.provenance ? { provenance: episode.provenance } : {}),
     }
     await appendJsonl(this.episodesFile(sessionId), record)
+
+    // BLUEPRINT--EPISODIC-ATOM-INDEX: self-build the reverse index.
+    if (record.crosslinks) {
+      const { appendIndexRefs, expandEpisodeCrosslinks } = await import('./episodic-atom-index.js')
+      await appendIndexRefs(this.episodicDir, expandEpisodeCrosslinks(sessionId, record))
+    }
     return record
   }
 
@@ -213,6 +219,12 @@ export class EpisodicLayerV2 {
       ...(turn.crosslinks ? { crosslinks: turn.crosslinks } : {}),
     }
     await appendJsonl(this.turnsFile(sessionId), record)
+
+    // BLUEPRINT--EPISODIC-ATOM-INDEX: self-build the reverse index.
+    if (record.crosslinks) {
+      const { appendIndexRefs, expandTurnCrosslinks } = await import('./episodic-atom-index.js')
+      await appendIndexRefs(this.episodicDir, expandTurnCrosslinks(sessionId, record))
+    }
 
     // Update the parent episode's denormalised counts. Read all,
     // bump matching, rewrite. Bounded by episode count.
@@ -495,13 +507,23 @@ export function matchesNamespace(
  * `LookupByAtomResult` per BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
  *
  * Linear in (sessions × turns); fine for small/medium installations.
- * For large stores, layer a persisted reverse index on top.
+ * For large stores, the persisted reverse index from
+ * BLUEPRINT--EPISODIC-ATOM-INDEX is consulted first when present —
+ * the function then re-verifies each indexed ref against the source
+ * file before returning. Falls back to the live scan when the index
+ * file is absent.
  */
 export async function scanEpisodicForAtom(
   layer: EpisodicLayerV2,
   atomId: string,
   opts: { predicates?: string[] } = {},
 ): Promise<LookupByAtomResult> {
+  // Try the persisted index first. When present + non-empty, narrow
+  // the scan to only sessions touched by the matching refs. When
+  // absent, fall back to the full-store walk.
+  const indexed = await tryIndexedScan(layer, atomId, opts)
+  if (indexed) return indexed
+
   const filter = opts.predicates && opts.predicates.length > 0 ? new Set(opts.predicates) : null
   const sessions = await layer.listSessions()
   const counts = { sessions: sessions.length, episodes: 0, turns: 0 }
@@ -563,4 +585,128 @@ function matchedPredicates(
     if (!matches.includes(pred)) matches.push(pred)
   }
   return matches
+}
+
+/**
+ * Try the persisted atom-refs index (BLUEPRINT--EPISODIC-ATOM-INDEX).
+ * Returns a LookupByAtomResult when:
+ *   - the index file exists, AND
+ *   - re-verification against the source files succeeds for the
+ *     matching refs.
+ *
+ * Returns `null` when the index file doesn't exist (caller falls
+ * back to live scan).
+ *
+ * This is the optimisation that turns lookupByAtom from
+ * O(all-sessions) into O(matching-refs).
+ */
+async function tryIndexedScan(
+  layer: EpisodicLayerV2,
+  atomId: string,
+  opts: { predicates?: string[] } = {},
+): Promise<LookupByAtomResult | null> {
+  // Read the dir off the layer (private field, but we own this module).
+  const dir = (layer as unknown as { episodicDir?: string }).episodicDir
+  if (!dir) return null
+  const { loadIndexForAtom } = await import('./episodic-atom-index.js')
+  const refs = await loadIndexForAtom(dir, atomId, opts)
+  if (refs === null) return null // no index file → caller does live scan
+
+  // Group refs by (session, episode, kind=episode|turn).
+  const sessionsTouched = new Set<string>(refs.map((r) => r.session_id))
+  const counts = { sessions: sessionsTouched.size, episodes: 0, turns: 0 }
+  const episodes: EpisodeRef[] = []
+  const turns: TurnRef[] = []
+  const filter = opts.predicates && opts.predicates.length > 0 ? new Set(opts.predicates) : null
+
+  // Cache per-session episode + turn lists so we open each file once.
+  const epCache = new Map<string, Map<string, Episode>>()
+  const turnCache = new Map<string, Map<string, Turn>>()
+  async function getEpisode(sessionId: string, episodeId: string): Promise<Episode | undefined> {
+    let m = epCache.get(sessionId)
+    if (!m) {
+      const list = await layer.listEpisodes(sessionId)
+      counts.episodes += list.length
+      m = new Map(list.map((e) => [e.episode_id, e]))
+      epCache.set(sessionId, m)
+    }
+    return m.get(episodeId)
+  }
+  async function getTurn(sessionId: string, turnId: string): Promise<Turn | undefined> {
+    let m = turnCache.get(sessionId)
+    if (!m) {
+      const list = await layer.listTurns(sessionId)
+      counts.turns += list.length
+      m = new Map(list.map((t) => [t.turn_id, t]))
+      turnCache.set(sessionId, m)
+    }
+    return m.get(turnId)
+  }
+
+  // Group refs to dedupe by source row, accumulating predicates per row.
+  type EpKey = `e:${string}:${string}`
+  type TurnKey = `t:${string}:${string}:${string}`
+  const epPredicates = new Map<EpKey, Set<string>>()
+  const turnPredicates = new Map<TurnKey, Set<string>>()
+  for (const ref of refs) {
+    if (filter && !filter.has(ref.predicate)) continue
+    if (ref.turn_id) {
+      const k: TurnKey = `t:${ref.session_id}:${ref.episode_id}:${ref.turn_id}`
+      let s = turnPredicates.get(k)
+      if (!s) {
+        s = new Set()
+        turnPredicates.set(k, s)
+      }
+      s.add(ref.predicate)
+    } else {
+      const k: EpKey = `e:${ref.session_id}:${ref.episode_id}`
+      let s = epPredicates.get(k)
+      if (!s) {
+        s = new Set()
+        epPredicates.set(k, s)
+      }
+      s.add(ref.predicate)
+    }
+  }
+
+  // Re-verify episode refs against the source.
+  for (const [k, preds] of epPredicates) {
+    const [, sessionId, episodeId] = k.split(':') as [string, string, string]
+    const ep = await getEpisode(sessionId, episodeId)
+    if (!ep) continue // stale index entry
+    const verified = matchedPredicates(ep.crosslinks, atomId, preds.size > 0 ? preds : null)
+    if (verified.length === 0) continue
+    episodes.push({
+      session_id: sessionId,
+      episode_id: episodeId,
+      predicates: verified,
+      episode_type: ep.episode_type,
+      ...(ep.episode_tag ? { episode_tag: ep.episode_tag } : {}),
+    })
+  }
+
+  // Re-verify turn refs against the source.
+  for (const [k, preds] of turnPredicates) {
+    const [, sessionId, , turnId] = k.split(':') as [string, string, string, string]
+    const turn = await getTurn(sessionId, turnId)
+    if (!turn) continue
+    const verified = matchedPredicates(turn.crosslinks, atomId, preds.size > 0 ? preds : null)
+    if (verified.length === 0) continue
+    turns.push({
+      session_id: sessionId,
+      episode_id: turn.episode_id,
+      turn_id: turnId,
+      predicates: verified,
+      speaker: turn.speaker,
+      t: turn.t,
+    })
+  }
+
+  episodes.sort(
+    (a, b) =>
+      a.session_id.localeCompare(b.session_id) || a.episode_id.localeCompare(b.episode_id),
+  )
+  turns.sort((a, b) => a.t.localeCompare(b.t))
+
+  return { atomId, episodes, turns, scanned: counts }
 }

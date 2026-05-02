@@ -1217,13 +1217,16 @@ async function cmdCommunity(argv: string[]): Promise<void> {
   const subcmd = argv[0]
   const rest = argv.slice(1)
   if (!subcmd) {
-    console.error('gks community: missing subcommand. Try: summarize')
+    console.error('gks community: missing subcommand. Try: summarize | detect')
     process.exit(1)
   }
   switch (subcmd) {
     case 'summarize':
     case 'summarise':
       await cmdCommunitySummarize(rest)
+      break
+    case 'detect':
+      await cmdCommunityDetect(rest)
       break
     default:
       console.error(`gks community: unknown subcommand '${subcmd}'`)
@@ -1311,6 +1314,61 @@ async function cmdCommunitySummarize(argv: string[]): Promise<void> {
     console.log('')
     console.log('  ── synthesis ──')
     for (const line of result.summary.split('\n')) console.log(`  ${line}`)
+  })
+}
+
+/**
+ * `gks community detect [--edges=a,b,c] [--min-size=N]`
+ *
+ * Auto-detect communities (clusters) in the atom crosslink graph using
+ * deterministic Louvain-lite. Prints `community_id`, `size`, `density`,
+ * and member ids for each cluster. Pair with `community summarize` to
+ * generate per-cluster narratives.
+ */
+async function cmdCommunityDetect(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      ...GLOBAL_OPTIONS,
+      edges: { type: 'string' },
+      'min-size': { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const edgesRaw = values['edges']
+  const edges =
+    typeof edgesRaw === 'string'
+      ? edgesRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined
+  const minSizeRaw = values['min-size']
+  const minSize =
+    typeof minSizeRaw === 'string' ? Number.parseInt(minSizeRaw, 10) : undefined
+
+  const store = await openStore(flags)
+  const result = await store.detectCommunities({
+    ...(edges ? { edgeKeys: edges } : {}),
+    ...(minSize !== undefined ? { minSize } : {}),
+  })
+
+  emit(flags, result, () => {
+    console.log(
+      `community detect: ${result.communities.length} community(ies) over ${result.total_atoms} atom(s) ` +
+        `(modularity Q=${result.modularity.toFixed(3)})`,
+    )
+    for (const c of result.communities) {
+      console.log(
+        `  • ${c.community_id}  size=${c.size}  density=${c.density.toFixed(3)}`,
+      )
+      for (const m of c.members) console.log(`      ${m}`)
+    }
+    if (result.orphans.length > 0) {
+      console.log('')
+      console.log(`  orphans (${result.orphans.length}):`)
+      for (const o of result.orphans) console.log(`    ${o}`)
+    }
   })
 }
 
@@ -1601,6 +1659,8 @@ Subcommands
                                               regenerate summary_tldr in atom frontmatter
   community summarize SEED [--hops=N] [--include-bodies] [--max-members=N] [--edges=a,b,c]
                                               synthesize a narrative across a crosslink neighbourhood
+  community detect [--edges=a,b,c] [--min-size=N]
+                                              auto-detect clusters via Louvain-lite
   episodic show SESSION_ID [--full]           pretty-print a v2 episodic session
   episodic migrate SESSION_ID [--force]       re-emit a v1 markdown session into v2 layout
   episodic list                               list all v2 sessions from _index.jsonl

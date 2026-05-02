@@ -410,6 +410,70 @@ describe('gks CLI', () => {
     expect(missing.stdout).toMatch(/no v2 session/)
   }, 30_000)
 
+  it('community detect finds clusters and orphans via CLI', async () => {
+    run(['init', `--root=${workdir}`])
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const gksDir = path.join(workdir, 'gks')
+    await fs.mkdir(path.join(gksDir, 'concept'), { recursive: true })
+    const fm = (id: string, links?: Record<string, string[]>) =>
+      [
+        '---',
+        `id: ${id}`,
+        'phase: 1',
+        'type: concept',
+        'status: stable',
+        'vault_id: default',
+        `title: ${id}`,
+        ...(links ? [`crosslinks: ${JSON.stringify(links)}`] : []),
+        '---',
+        '',
+        `# ${id}`,
+        '',
+        'body',
+        '',
+      ].join('\n')
+    await fs.writeFile(
+      path.join(gksDir, 'concept', 'CONCEPT--PAIR-A.md'),
+      fm('CONCEPT--PAIR-A', { references: ['CONCEPT--PAIR-B'] }),
+      'utf8',
+    )
+    await fs.writeFile(path.join(gksDir, 'concept', 'CONCEPT--PAIR-B.md'), fm('CONCEPT--PAIR-B'), 'utf8')
+    await fs.writeFile(
+      path.join(gksDir, 'concept', 'CONCEPT--PAIR-C.md'),
+      fm('CONCEPT--PAIR-C', { references: ['CONCEPT--PAIR-D'] }),
+      'utf8',
+    )
+    await fs.writeFile(path.join(gksDir, 'concept', 'CONCEPT--PAIR-D.md'), fm('CONCEPT--PAIR-D'), 'utf8')
+    await fs.writeFile(path.join(gksDir, 'concept', 'CONCEPT--ORPHAN.md'), fm('CONCEPT--ORPHAN'), 'utf8')
+
+    const indexer = resolve(__dirname, '..', '..', 'scripts', 'msp', 're-indexer.ts')
+    const idx = spawnSync(NPX, ['tsx', indexer, `--root=${workdir}`], {
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, GKS_LOG_LEVEL: 'error' },
+    })
+    expect(idx.status).toBe(0)
+
+    // Plain output
+    const r = run(['community', 'detect', `--root=${workdir}`])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('community detect:')
+    expect(r.stdout).toContain('CONCEPT--PAIR-A')
+    expect(r.stdout).toContain('CONCEPT--ORPHAN')
+    expect(r.stdout).toMatch(/orphans/)
+
+    // --json round-trip
+    const j = run(['community', 'detect', `--root=${workdir}`, '--json'])
+    expect(j.code).toBe(0)
+    const parsed = JSON.parse(j.stdout) as {
+      communities: Array<{ community_id: string; members: string[]; size: number }>
+      orphans: string[]
+    }
+    expect(parsed.communities.length).toBeGreaterThanOrEqual(2)
+    expect(parsed.orphans).toContain('CONCEPT--ORPHAN')
+  }, 30_000)
+
   it('episodic migrate moves a v1 markdown session into v2 layout', async () => {
     run(['init', `--root=${workdir}`])
     const fs = await import('node:fs/promises')

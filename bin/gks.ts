@@ -110,6 +110,9 @@ async function main(): Promise<void> {
     case 'community':
       await cmdCommunity(subArgv)
       break
+    case 'episodic':
+      await cmdEpisodic(subArgv)
+      break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
       printUsage()
@@ -1311,6 +1314,198 @@ async function cmdCommunitySummarize(argv: string[]): Promise<void> {
   })
 }
 
+// ─── episodic (v2 inspector + v1→v2 migrator) ─────────────────────────────
+
+async function cmdEpisodic(argv: string[]): Promise<void> {
+  const subcmd = argv[0]
+  const rest = argv.slice(1)
+  if (!subcmd) {
+    console.error('gks episodic: missing subcommand. Try: show | migrate | list')
+    process.exit(1)
+  }
+  switch (subcmd) {
+    case 'show':
+      await cmdEpisodicShow(rest)
+      break
+    case 'migrate':
+      await cmdEpisodicMigrate(rest)
+      break
+    case 'list':
+      await cmdEpisodicList(rest)
+      break
+    default:
+      console.error(`gks episodic: unknown subcommand '${subcmd}'`)
+      process.exit(1)
+  }
+}
+
+/**
+ * `gks episodic show <session_id> [--full]`
+ *
+ * Pretty-print a v2 episodic session — header, episodes (with
+ * denormalised counts), and (with --full) all turns.
+ */
+async function cmdEpisodicShow(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      full: { type: 'boolean' },
+    },
+  })
+  const flags = readGlobals(values)
+  const sessionId = positionals[0]
+  if (!sessionId) {
+    console.error('gks episodic show: missing session_id')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+  const session = await store.episodicV2.readSession(sessionId)
+  if (!session) {
+    emit(flags, { ok: false, reason: 'no v2 session at that id' }, () => {
+      console.log(`episodic show: no v2 session at ${sessionId}`)
+      console.log('  hint: run `gks episodic migrate <session_id>` if you have a v1 markdown')
+    })
+    process.exit(1)
+  }
+  const episodes = await store.episodicV2.listEpisodes(sessionId)
+  const turns = values['full']
+    ? await store.episodicV2.listTurns(sessionId)
+    : []
+
+  emit(
+    flags,
+    { ok: true, session, episodes, ...(values['full'] ? { turns } : {}) },
+    () => {
+      console.log(`episodic show: ${sessionId}`)
+      console.log(`  schema_version:  ${session.schema_version}`)
+      console.log(`  system:          ${session.system}`)
+      console.log(`  started_at:      ${session.started_at}`)
+      console.log(`  ended_at:        ${session.ended_at ?? '(unset — still active)'}`)
+      console.log(`  episodes:        ${episodes.length}`)
+      const totalTurns = episodes.reduce((s, e) => s + e.turn_count, 0)
+      console.log(`  turn_count:      ${totalTurns}`)
+      if (session.summary) {
+        console.log('')
+        console.log(`  summary: ${session.summary}`)
+      }
+      if (episodes.length > 0) {
+        console.log('')
+        console.log('  episodes:')
+        for (const e of episodes) {
+          console.log(`    • ${e.episode_id} [${e.episode_type}] turns=${e.turn_count}`)
+        }
+      }
+      if (values['full'] && turns.length > 0) {
+        console.log('')
+        console.log(`  turns (${turns.length}):`)
+        for (const t of turns) {
+          const text = (t.text_excerpt ?? t.summary ?? t.raw_text ?? '').slice(0, 80)
+          console.log(`    ${t.turn_id} [${t.episode_id}] ${t.speaker}: ${text}`)
+        }
+      }
+    },
+  )
+}
+
+/**
+ * `gks episodic migrate <session_id>`
+ *
+ * Re-emit a v1 markdown session into the v2 three-document layout.
+ * Conservative mapping (one Episode + one Turn per parsed trace step,
+ * matching how endSession writes new v2 sessions).
+ */
+async function cmdEpisodicMigrate(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { ...GLOBAL_OPTIONS, force: { type: 'boolean' } },
+  })
+  const flags = readGlobals(values)
+  const sessionId = positionals[0]
+  if (!sessionId) {
+    console.error('gks episodic migrate: missing session_id')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+
+  // Refuse to clobber an existing v2 session unless --force.
+  const existingV2 = await store.episodicV2.readSession(sessionId)
+  if (existingV2 && !values['force']) {
+    console.error(`gks episodic migrate: v2 session already exists at ${sessionId}; pass --force to overwrite`)
+    process.exit(1)
+  }
+
+  // Read the v1 markdown + raw trace.
+  const v1Items = await store.episodic.listEpisodic()
+  const v1 = v1Items.find((x) => x.session_id === sessionId || x.id === sessionId)
+  if (!v1) {
+    console.error(`gks episodic migrate: no v1 markdown for session_id=${sessionId}`)
+    process.exit(1)
+  }
+  const trace = await store.episodic.readTrace(sessionId)
+
+  const { newEpisodicSession } = await import('../src/memory/episodic-v2.js')
+  const sess = newEpisodicSession({
+    session_id: sessionId,
+    system: 'gks-v3-migrated',
+    started_at:
+      typeof v1.frontmatter['started_at'] === 'string'
+        ? (v1.frontmatter['started_at'] as string)
+        : new Date().toISOString(),
+  })
+  await store.episodicV2.writeSession(sess)
+
+  const episodeId = `E-${sessionId}-001`
+  await store.episodicV2.appendEpisode(sessionId, {
+    episode_id: episodeId,
+    episode_type: 'interaction',
+    provenance: { written_by: 'gks-episodic-migrate', authoritative_fields: ['from_v1_markdown'] },
+  })
+  for (const step of trace) {
+    await store.episodicV2.appendTurn(sessionId, {
+      episode_id: episodeId,
+      speaker: step.kind,
+      t: step.t,
+      raw_text: step.content,
+    })
+  }
+  await store.episodicV2.finaliseSession(sessionId, {
+    ended_at:
+      typeof v1.frontmatter['ended_at'] === 'string'
+        ? (v1.frontmatter['ended_at'] as string)
+        : new Date().toISOString(),
+    summary: v1.body.trim().slice(0, 1000),
+  })
+
+  emit(flags, { ok: true, session_id: sessionId, episode_id: episodeId, turn_count: trace.length }, () => {
+    console.log(`episodic migrate: ${sessionId}`)
+    console.log(`  v1 source: ${v1.path}`)
+    console.log(`  v2 episode: ${episodeId} (${trace.length} turn(s))`)
+    console.log(`  v2 dir:    <episodicDir>/${sessionId}/`)
+  })
+}
+
+/**
+ * `gks episodic list` — print one row per session from _index.jsonl.
+ */
+async function cmdEpisodicList(argv: string[]): Promise<void> {
+  const { values } = parseArgs({ args: argv, options: { ...GLOBAL_OPTIONS } })
+  const flags = readGlobals(values)
+  const store = await openStore(flags)
+  const sessions = await store.episodicV2.listSessions()
+  emit(flags, { ok: true, sessions }, () => {
+    console.log(`episodic list: ${sessions.length} v2 session(s)`)
+    for (const s of sessions) {
+      console.log(
+        `  ${s.session_id}  episodes=${s.episode_count} turns=${s.turn_count}  ${s.started_at}` +
+          (s.ended_at ? ` → ${s.ended_at}` : ' (active)'),
+      )
+    }
+  })
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -1406,6 +1601,9 @@ Subcommands
                                               regenerate summary_tldr in atom frontmatter
   community summarize SEED [--hops=N] [--include-bodies] [--max-members=N] [--edges=a,b,c]
                                               synthesize a narrative across a crosslink neighbourhood
+  episodic show SESSION_ID [--full]           pretty-print a v2 episodic session
+  episodic migrate SESSION_ID [--force]       re-emit a v1 markdown session into v2 layout
+  episodic list                               list all v2 sessions from _index.jsonl
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

@@ -705,6 +705,19 @@ export class MemoryStore {
   private readonly _communityCache: CommunityCacheLike
 
   /**
+   * Reverse episodic lookup — find every v2 episode/turn whose typed
+   * crosslinks reference `atomId`. Implements BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
+   * Linear scan over the v2 store; pair with a cache tier for large installations.
+   */
+  async lookupByAtom(
+    atomId: string,
+    opts?: { predicates?: string[] },
+  ): Promise<import('./episodic-v2.js').LookupByAtomResult> {
+    const { scanEpisodicForAtom } = await import('./episodic-v2.js')
+    return scanEpisodicForAtom(this.episodicV2, atomId, opts)
+  }
+
+  /**
    * Auto-detect communities in the atom crosslink graph (Louvain-lite).
    * Implements BLUEPRINT--AUTO-COMMUNITIES — pure read-side, deterministic,
    * no persistence. Pair with `summarizeCommunity` for per-cluster
@@ -938,12 +951,16 @@ export { EpisodicLayer } from './episodic.js'
 export {
   EpisodicLayerV2,
   newEpisodicSession,
+  scanEpisodicForAtom,
   validateEpisodicCrosslinks,
 } from './episodic-v2.js'
 export type {
+  EpisodeRef,
   EpisodicLayerV2Options,
   EpisodicLinkError,
   EpisodicValidateResult,
+  LookupByAtomResult,
+  TurnRef,
 } from './episodic-v2.js'
 export { InboundQueue } from './inbound.js'
 export { ATOMIC_ID_PATTERN, isAtomicId, assertAtomicId } from './atomic-id.js'

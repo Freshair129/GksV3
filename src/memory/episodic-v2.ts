@@ -389,3 +389,108 @@ export function newEpisodicSession(args: {
     ...(args.namespace ? { namespace: args.namespace } : {}),
   }
 }
+
+// ─── reverse lookup (BLUEPRINT--REVERSE-EPISODIC-LOOKUP) ───────────────
+
+export interface EpisodeRef {
+  session_id: string
+  episode_id: string
+  predicates: string[]
+  episode_type: Episode['episode_type']
+  episode_tag?: string[]
+}
+
+export interface TurnRef {
+  session_id: string
+  episode_id: string
+  turn_id: string
+  predicates: string[]
+  speaker: string
+  /** ISO-8601 turn timestamp; used for chronological sort of `turns[]`. */
+  t: string
+}
+
+export interface LookupByAtomResult {
+  atomId: string
+  /** Sorted by (session_id asc, episode_id asc). */
+  episodes: EpisodeRef[]
+  /** Sorted by `t` ascending (chronological). */
+  turns: TurnRef[]
+  scanned: { sessions: number; episodes: number; turns: number }
+}
+
+/**
+ * Live scan over every v2 episodic session in a layer for entries
+ * whose typed crosslinks reference `atomId`. Returns a unified
+ * `LookupByAtomResult` per BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
+ *
+ * Linear in (sessions × turns); fine for small/medium installations.
+ * For large stores, layer a persisted reverse index on top.
+ */
+export async function scanEpisodicForAtom(
+  layer: EpisodicLayerV2,
+  atomId: string,
+  opts: { predicates?: string[] } = {},
+): Promise<LookupByAtomResult> {
+  const filter = opts.predicates && opts.predicates.length > 0 ? new Set(opts.predicates) : null
+  const sessions = await layer.listSessions()
+  const counts = { sessions: sessions.length, episodes: 0, turns: 0 }
+  const episodes: EpisodeRef[] = []
+  const turns: TurnRef[] = []
+
+  for (const s of sessions) {
+    const eps = await layer.listEpisodes(s.session_id)
+    counts.episodes += eps.length
+    for (const ep of eps) {
+      const preds = matchedPredicates(ep.crosslinks, atomId, filter)
+      if (preds.length === 0) continue
+      const ref: EpisodeRef = {
+        session_id: s.session_id,
+        episode_id: ep.episode_id,
+        predicates: preds,
+        episode_type: ep.episode_type,
+        ...(ep.episode_tag ? { episode_tag: ep.episode_tag } : {}),
+      }
+      episodes.push(ref)
+    }
+
+    const sessionTurns = await layer.listTurns(s.session_id)
+    counts.turns += sessionTurns.length
+    for (const turn of sessionTurns) {
+      const preds = matchedPredicates(turn.crosslinks, atomId, filter)
+      if (preds.length === 0) continue
+      turns.push({
+        session_id: s.session_id,
+        episode_id: turn.episode_id,
+        turn_id: turn.turn_id,
+        predicates: preds,
+        speaker: turn.speaker,
+        t: turn.t,
+      })
+    }
+  }
+
+  episodes.sort(
+    (a, b) =>
+      a.session_id.localeCompare(b.session_id) || a.episode_id.localeCompare(b.episode_id),
+  )
+  turns.sort((a, b) => a.t.localeCompare(b.t))
+
+  return { atomId, episodes, turns, scanned: counts }
+}
+
+function matchedPredicates(
+  crosslinks: Record<string, string[]> | undefined,
+  atomId: string,
+  filter: Set<string> | null,
+): string[] {
+  if (!crosslinks) return []
+  const matches: string[] = []
+  for (const [pred, targets] of Object.entries(crosslinks)) {
+    if (filter && !filter.has(pred)) continue
+    if (!Array.isArray(targets)) continue
+    if (!targets.includes(atomId)) continue
+    if (!matches.includes(pred)) matches.push(pred)
+  }
+  return matches
+}

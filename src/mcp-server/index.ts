@@ -591,6 +591,28 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     },
   )
 
+  // gks_lookup_by_atom — reverse-lookup over v2 episodic store.
+  server.registerTool(
+    'gks_lookup_by_atom',
+    {
+      description:
+        'Reverse episodic lookup: returns every v2 episode + turn whose typed crosslinks reference the given atom id, sorted chronologically. Optional `predicates[]` filter restricts to specific crosslink keys (e.g. ["implements", "discusses"]).',
+      inputSchema: z
+        .object({
+          atomId: z.string(),
+          predicates: z.array(z.string()).optional(),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const result = await opts.store.lookupByAtom(
+        args.atomId,
+        args.predicates ? { predicates: args.predicates } : {},
+      )
+      return jsonReply(result)
+    },
+  )
+
   // gks_episodic_list — list every v2 session from _index.jsonl.
   server.registerTool(
     'gks_episodic_list',

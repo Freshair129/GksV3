@@ -88,6 +88,7 @@ describe('gks-mcp-server', () => {
         'gks_episodic_show',
         'gks_episodic_migrate',
         'gks_episodic_list',
+        'gks_lookup_by_atom',
       ].sort(),
     )
   })

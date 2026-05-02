@@ -1415,6 +1415,9 @@ async function cmdEpisodic(argv: string[]): Promise<void> {
     case 'list':
       await cmdEpisodicList(rest)
       break
+    case 'lookup':
+      await cmdEpisodicLookup(rest)
+      break
     default:
       console.error(`gks episodic: unknown subcommand '${subcmd}'`)
       process.exit(1)
@@ -1588,6 +1591,68 @@ async function cmdEpisodicList(argv: string[]): Promise<void> {
   })
 }
 
+/**
+ * `gks episodic lookup <ATOM--ID> [--predicates=a,b]`
+ *
+ * Reverse-lookup: scan every v2 episodic session for episodes/turns
+ * whose typed crosslinks reference the given atom id. Implements
+ * BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
+ */
+async function cmdEpisodicLookup(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      predicates: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const atomId = positionals[0]
+  if (!atomId) {
+    console.error('gks episodic lookup: missing atom id (e.g. FEAT--MY-FEATURE)')
+    process.exit(1)
+  }
+  const predRaw = values['predicates']
+  const predicates =
+    typeof predRaw === 'string'
+      ? predRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined
+
+  const store = await openStore(flags)
+  const result = await store.lookupByAtom(atomId, predicates ? { predicates } : {})
+
+  emit(flags, result, () => {
+    console.log(
+      `episodic lookup: ${atomId} — ${result.episodes.length} episode(s), ${result.turns.length} turn(s)`,
+    )
+    console.log(
+      `  scanned: sessions=${result.scanned.sessions} episodes=${result.scanned.episodes} turns=${result.scanned.turns}`,
+    )
+    if (result.episodes.length > 0) {
+      console.log('')
+      console.log('  episodes:')
+      for (const e of result.episodes) {
+        console.log(
+          `    ${e.session_id} / ${e.episode_id} [${e.predicates.join(',')}] (${e.episode_type})`,
+        )
+      }
+    }
+    if (result.turns.length > 0) {
+      console.log('')
+      console.log('  turns (chronological):')
+      for (const t of result.turns) {
+        console.log(
+          `    ${t.t}  ${t.session_id}/${t.turn_id} ${t.speaker}  [${t.predicates.join(',')}]`,
+        )
+      }
+    }
+  })
+}
+
 // ─── shared helpers ────────────────────────────────────────────────────────
 
 const GLOBAL_OPTIONS = {
@@ -1688,6 +1753,8 @@ Subcommands
   episodic show SESSION_ID [--full]           pretty-print a v2 episodic session
   episodic migrate SESSION_ID [--force]       re-emit a v1 markdown session into v2 layout
   episodic list                               list all v2 sessions from _index.jsonl
+  episodic lookup ATOM--ID [--predicates=a,b]
+                                              reverse-lookup: episodes/turns citing the atom
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

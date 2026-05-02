@@ -11,7 +11,7 @@ bi-temporal versioning, and pluggable backends.
 
 ```sh
 npm run typecheck          # tsc --noEmit (run before every commit)
-npm test                   # vitest run — 462 tests
+npm test                   # vitest run — 529 tests
 npm run build              # tsc -p tsconfig.build.json
 npm run quickstart         # end-to-end demo
 
@@ -192,11 +192,14 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`src/memory/community.ts`](./src/memory/community.ts) | `summarizeCommunity` (structural/semantic/hybrid) + LRU cache |
 | [`src/memory/community-cache-disk.ts`](./src/memory/community-cache-disk.ts) | `DiskCommunityCache` + `TieredCommunityCache` |
 | [`src/memory/community-detect.ts`](./src/memory/community-detect.ts) | `detectCommunities` (Louvain-lite) + `labelCommunities` |
-| [`src/memory/episodic-v2.ts`](./src/memory/episodic-v2.ts) | `EpisodicLayerV2` (3-doc split) + `scanEpisodicForAtom` |
+| [`src/memory/episodic-v2.ts`](./src/memory/episodic-v2.ts) | `EpisodicLayerV2` (3-doc split) + `scanEpisodicForAtom` + `matchesNamespace` |
 | [`src/memory/episode-boundary.ts`](./src/memory/episode-boundary.ts) | `detectEpisodeBoundaries` (time-gap / semantic / explicit) |
+| [`src/memory/episode-boundary-llm.ts`](./src/memory/episode-boundary-llm.ts) | `createLlmBoundaryDetector` — opt-in LLM-backed pluggable detector |
+| [`src/memory/episodic-atom-index.ts`](./src/memory/episodic-atom-index.ts) | Persisted `_atom_refs.jsonl` reverse index + `reindexEpisodicAtoms` |
+| [`src/memory/semantic-frames.ts`](./src/memory/semantic-frames.ts) | Heuristic + LLM `SemanticFramesInferrer` for v2 Turn frames |
 | [`src/memory/tldr.ts`](./src/memory/tldr.ts) | `TldrGenerator` + `regenerateTldrInPlace` |
 | [`src/scaffold/new-feature.ts`](./src/scaffold/new-feature.ts) | `scaffoldNewFeature()` — drops 4 inbound candidates |
-| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 30 tools exposed over stdio |
+| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 31 tools exposed over stdio |
 | [`src/lib/retry.ts`](./src/lib/retry.ts) | Exponential-backoff retry |
 | [`src/lib/circuit-breaker.ts`](./src/lib/circuit-breaker.ts) | Circuit breaker |
 | [`src/lib/telemetry.ts`](./src/lib/telemetry.ts) | OTel API helpers |
@@ -251,7 +254,7 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 
 ---
 
-## MCP tools (30 total)
+## MCP tools (31 total)
 
 | Tool | Purpose |
 |------|---------|
@@ -283,5 +286,6 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 | `gks_episodic_show` | Read v2 episodic session (header + episodes + optional turns) |
 | `gks_episodic_migrate` | Re-emit v1 markdown into v2 3-doc layout |
 | `gks_episodic_list` | List all v2 sessions from `_index.jsonl` |
-| `gks_lookup_by_atom` | Reverse lookup: episodes/turns citing an atom |
+| `gks_lookup_by_atom` | Reverse lookup: episodes/turns citing an atom (namespace-scoped by default) |
+| `gks_episodic_reindex` | Rebuild `_atom_refs.jsonl` reverse-index from source files |
 | `gks_recall_cross_namespace` | Admin: cross-tenant recall (gated) |

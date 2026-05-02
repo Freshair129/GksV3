@@ -175,6 +175,14 @@ export interface EndSessionOptions {
     | false
     | import('./episode-boundary.js').EpisodeBoundaryOptions
     | { detector: import('./episode-boundary.js').EpisodeBoundaryDetector }
+  /**
+   * Per-turn `semantic_frames` inferrer (BLUEPRINT--SEMANTIC-FRAMES).
+   *   undefined / false → no frames inferred (default — byte-identical
+   *                       to pre-change behaviour)
+   *   <inferrer>        → call the inferrer once at end-of-session;
+   *                       stamp returned frames onto turns.jsonl
+   */
+  semanticFrames?: false | import('./semantic-frames.js').SemanticFramesInferrer
 }
 
 export interface EndSessionReport {
@@ -238,6 +246,7 @@ export async function endSession(
         trace as TraceStep[],
         reflectResult,
         opts.episodeBoundary,
+        opts.semanticFrames,
       )
     } catch (err) {
       log.warn('episodic v2 write failed (v1 still wrote)', {
@@ -307,6 +316,7 @@ async function writeEpisodicV2(
   trace: TraceStep[],
   reflectResult: ReflectResult | undefined,
   boundaryOpt: EndSessionOptions['episodeBoundary'],
+  framesInferrer: EndSessionOptions['semanticFrames'],
 ): Promise<string> {
   const { newEpisodicSession } = await import('./episodic-v2.js')
   const layer = store.episodicV2
@@ -397,6 +407,29 @@ async function writeEpisodicV2(
           raw_text: step.content,
         })
       }
+    }
+  }
+
+  // Per-turn semantic_frames inference (BLUEPRINT--SEMANTIC-FRAMES).
+  // Runs after all turns are appended so the inferrer sees the same
+  // ordering on disk + can patch in one rewrite.
+  if (typeof framesInferrer === 'function' && trace.length > 0) {
+    try {
+      const { frames } = await framesInferrer(trace)
+      if (frames.length === trace.length) {
+        await layer.patchTurnFrames(session.id, frames)
+      } else {
+        log.warn('semantic frames inferrer returned wrong shape — skipping patch', {
+          session_id: session.id,
+          expected: trace.length,
+          got: frames.length,
+        })
+      }
+    } catch (err) {
+      log.warn('semantic frames inferrer threw — skipping patch', {
+        session_id: session.id,
+        error: (err as Error).message,
+      })
     }
   }
 

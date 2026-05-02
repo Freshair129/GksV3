@@ -1674,6 +1674,9 @@ async function cmdEpisodic(argv: string[]): Promise<void> {
     case 'lookup':
       await cmdEpisodicLookup(rest)
       break
+    case 'reindex':
+      await cmdEpisodicReindex(rest)
+      break
     default:
       console.error(`gks episodic: unknown subcommand '${subcmd}'`)
       process.exit(1)
@@ -1861,6 +1864,7 @@ async function cmdEpisodicLookup(argv: string[]): Promise<void> {
     options: {
       ...GLOBAL_OPTIONS,
       predicates: { type: 'string' },
+      'cross-namespace': { type: 'boolean' },
     },
   })
   const flags = readGlobals(values)
@@ -1879,7 +1883,17 @@ async function cmdEpisodicLookup(argv: string[]): Promise<void> {
       : undefined
 
   const store = await openStore(flags)
-  const result = await store.lookupByAtom(atomId, predicates ? { predicates } : {})
+  const result = await store.lookupByAtom(atomId, {
+    ...(predicates ? { predicates } : {}),
+    // GLOBAL_OPTIONS already populates flags.namespace from --tenant /
+    // --user / --agent flags. Pass it through unless the caller opted
+    // into --cross-namespace.
+    ...(values['cross-namespace']
+      ? { crossNamespace: true }
+      : Object.keys(flags.namespace).length > 0
+        ? { namespace: flags.namespace }
+        : {}),
+  })
 
   emit(flags, result, () => {
     console.log(
@@ -1906,6 +1920,28 @@ async function cmdEpisodicLookup(argv: string[]): Promise<void> {
         )
       }
     }
+  })
+}
+
+/**
+ * `gks episodic reindex`
+ *
+ * Rebuild `<episodicDir>/_atom_refs.jsonl` from scratch by walking
+ * every v2 session. Use after a manual edit, after `episodic migrate`,
+ * or for periodic drift cleanup.
+ *
+ * Implements FEAT--EPISODIC-ATOM-INDEX AC8.
+ */
+async function cmdEpisodicReindex(argv: string[]): Promise<void> {
+  const { values } = parseArgs({ args: argv, options: { ...GLOBAL_OPTIONS } })
+  const flags = readGlobals(values)
+  const store = await openStore(flags)
+  const { reindexEpisodicAtoms } = await import('../src/memory/episodic-atom-index.js')
+  const result = await reindexEpisodicAtoms(store.episodicV2)
+  emit(flags, { ok: true, ...result }, () => {
+    console.log(`episodic reindex: rebuilt _atom_refs.jsonl`)
+    console.log(`  sessions scanned: ${result.sessions}`)
+    console.log(`  refs written:     ${result.refs}`)
   })
 }
 
@@ -2019,8 +2055,10 @@ Subcommands
   episodic show SESSION_ID [--full]           pretty-print a v2 episodic session
   episodic migrate SESSION_ID [--force]       re-emit a v1 markdown session into v2 layout
   episodic list                               list all v2 sessions from _index.jsonl
-  episodic lookup ATOM--ID [--predicates=a,b]
+  episodic lookup ATOM--ID [--predicates=a,b] [--cross-namespace]
                                               reverse-lookup: episodes/turns citing the atom
+                                              (default: scoped to active --tenant / --user / --agent)
+  episodic reindex                            rebuild _atom_refs.jsonl reverse index from source files
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

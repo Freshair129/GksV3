@@ -5,7 +5,7 @@
 > three verbs (Retain, Recall, Reflect), with multi-tenancy, bi-temporal
 > versioning, observability, and pluggable backends.
 
-[![tests](https://img.shields.io/badge/tests-462%20passing-brightgreen)](#tests)
+[![tests](https://img.shields.io/badge/tests-529%20passing-brightgreen)](#tests)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 

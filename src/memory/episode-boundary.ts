@@ -19,6 +19,8 @@ export interface EpisodeBoundarySignals {
   gapMs?: number
   /** Cosine similarity between adjacent turns; present when boundary fired by topic-shift. */
   cosine?: number
+  /** Free-form reason emitted by an LLM detector (BLUEPRINT--LLM-EPISODE-BOUNDARY). */
+  llm_reason?: string
 }
 
 export type EpisodeBoundaryReason =

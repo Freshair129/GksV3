@@ -599,19 +599,26 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     'gks_lookup_by_atom',
     {
       description:
-        'Reverse episodic lookup: returns every v2 episode + turn whose typed crosslinks reference the given atom id, sorted chronologically. Optional `predicates[]` filter restricts to specific crosslink keys (e.g. ["implements", "discusses"]).',
+        'Reverse episodic lookup: returns every v2 episode + turn whose typed crosslinks reference the given atom id, sorted chronologically. Optional `predicates[]` filter restricts to specific crosslink keys (e.g. ["implements", "discusses"]). `namespace` / `crossNamespace` mirror the recall contract — default scope is the active namespace; pass `crossNamespace: true` for admin paths.',
       inputSchema: z
         .object({
           atomId: z.string(),
           predicates: z.array(z.string()).optional(),
+          namespace: namespaceSchema.optional(),
+          crossNamespace: z
+            .boolean()
+            .optional()
+            .describe('Bypass the namespace filter — admin / migration only.'),
         })
         .strict(),
     },
     async (args) => {
-      const result = await opts.store.lookupByAtom(
-        args.atomId,
-        args.predicates ? { predicates: args.predicates } : {},
-      )
+      const ns = mergeNs(opts.defaultNamespace, args.namespace)
+      const result = await opts.store.lookupByAtom(args.atomId, {
+        ...(args.predicates ? { predicates: args.predicates } : {}),
+        ...(ns ? { namespace: ns } : {}),
+        ...(args.crossNamespace ? { crossNamespace: true } : {}),
+      })
       return jsonReply(result)
     },
   )
@@ -626,6 +633,21 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     async () => {
       const sessions = await opts.store.episodicV2.listSessions()
       return jsonReply({ ok: true, sessions })
+    },
+  )
+
+  // gks_episodic_reindex — rebuild _atom_refs.jsonl from source files.
+  server.registerTool(
+    'gks_episodic_reindex',
+    {
+      description:
+        'Rebuild the persisted reverse atom-refs index (_atom_refs.jsonl) by walking every v2 session. Use after a manual edit, after episodic migrate, or for periodic drift cleanup. Returns counts of refs written + sessions scanned.',
+      inputSchema: z.object({}).strict(),
+    },
+    async () => {
+      const { reindexEpisodicAtoms } = await import('../memory/episodic-atom-index.js')
+      const result = await reindexEpisodicAtoms(opts.store.episodicV2)
+      return jsonReply({ ok: true, ...result })
     },
   )
 

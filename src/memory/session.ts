@@ -163,6 +163,18 @@ export interface EndSessionOptions {
    * produces the v1 EpisodicMemory shape.
    */
   schemaVersion?: '1' | '2' | 'both'
+  /**
+   * Episode boundary detection (BLUEPRINT--EPISODE-BOUNDARY).
+   *   undefined / not set → use the default detector
+   *                         (time-gap + explicit; semantic OFF)
+   *   false               → legacy single-episode mode
+   *   { ...opts }         → tweak detector config
+   *   { detector }        → bring your own detector function
+   */
+  episodeBoundary?:
+    | false
+    | import('./episode-boundary.js').EpisodeBoundaryOptions
+    | { detector: import('./episode-boundary.js').EpisodeBoundaryDetector }
 }
 
 export interface EndSessionReport {
@@ -212,13 +224,21 @@ export async function endSession(
 
   // EPISODIC-V2 write — runs alongside the v1 markdown. Default 'both'
   // so existing readers see no behavioural change while new readers
-  // get the richer schema. The trace.jsonl content is reshaped 1:1
-  // into a single Episode + N Turns (one per trace step).
+  // get the richer schema. Trace gets segmented into Episodes per
+  // BLUEPRINT--EPISODE-BOUNDARY (default: time-gap + explicit-marker
+  // detection; semantic OFF for cost reasons).
   const schemaVersion = opts.schemaVersion ?? 'both'
   let episodicV2Path: string | undefined
   if ((schemaVersion === '2' || schemaVersion === 'both') && opts.persist !== false) {
     try {
-      episodicV2Path = await writeEpisodicV2(store, session, endedAt, trace as TraceStep[], reflectResult)
+      episodicV2Path = await writeEpisodicV2(
+        store,
+        session,
+        endedAt,
+        trace as TraceStep[],
+        reflectResult,
+        opts.episodeBoundary,
+      )
     } catch (err) {
       log.warn('episodic v2 write failed (v1 still wrote)', {
         session_id: session.id,
@@ -286,6 +306,7 @@ async function writeEpisodicV2(
   endedAt: string,
   trace: TraceStep[],
   reflectResult: ReflectResult | undefined,
+  boundaryOpt: EndSessionOptions['episodeBoundary'],
 ): Promise<string> {
   const { newEpisodicSession } = await import('./episodic-v2.js')
   const layer = store.episodicV2
@@ -301,34 +322,81 @@ async function writeEpisodicV2(
     await layer.writeSession(sess)
   }
 
-  // Single bulk episode for the whole trace. Episode boundary
-  // detection is a follow-up — until then, one episode per session
-  // is the safe default.
-  const episodeId = `E-${session.id}-001`
-  const existingEpisodes = await layer.listEpisodes(session.id)
-  if (!existingEpisodes.some((e) => e.episode_id === episodeId)) {
-    await layer.appendEpisode(session.id, {
-      episode_id: episodeId,
-      episode_type: 'interaction',
-      ...(reflectResult?.memory.tags ? { episode_tag: reflectResult.memory.tags } : {}),
-      ...(reflectResult?.memory.linked_atoms && reflectResult.memory.linked_atoms.length > 0
-        ? { crosslinks: { references: reflectResult.memory.linked_atoms } }
-        : {}),
-      provenance: {
-        written_by: 'gks-session-end',
-        ...(reflectResult ? { llm_contribution: ['summary'] } : {}),
-      },
-    })
+  // Resolve segments: legacy mode = single segment; configured = use
+  // detector or BYO function; default = use the default detector
+  // (time-gap + explicit; semantic off).
+  let segments: import('./episode-boundary.js').EpisodeSegment[] = []
+  if (boundaryOpt === false) {
+    // Legacy: one Episode for the whole trace.
+    segments = trace.length > 0 ? [{ start_index: 0, end_index: trace.length, reason: 'initial', signals: {} }] : []
+  } else {
+    const { detectEpisodeBoundaries } = await import('./episode-boundary.js')
+    if (
+      boundaryOpt &&
+      typeof boundaryOpt === 'object' &&
+      'detector' in boundaryOpt &&
+      typeof boundaryOpt.detector === 'function'
+    ) {
+      segments = await boundaryOpt.detector(trace)
+    } else {
+      segments = await detectEpisodeBoundaries(trace, (boundaryOpt as import('./episode-boundary.js').EpisodeBoundaryOptions) ?? {})
+    }
+  }
 
-    // One turn per trace step (best-effort 1:1). Speakers map straight
-    // through; epistemic_mode left unset (not inferable from raw kind).
-    for (const step of trace) {
-      await layer.appendTurn(session.id, {
+  // No turns / no segments → emit nothing (matches the previous
+  // skipped-turn behaviour for empty traces).
+  if (segments.length === 0 && trace.length === 0) {
+    await layer.finaliseSession(session.id, {
+      ended_at: endedAt,
+      ...(reflectResult?.memory.summary ? { summary: reflectResult.memory.summary } : {}),
+      ...(reflectResult?.memory.outcomes ? { outcomes: reflectResult.memory.outcomes } : {}),
+      ...(reflectResult?.memory.tags ? { tags: reflectResult.memory.tags } : {}),
+    })
+    return session.id
+  }
+
+  // Idempotency: if any expected episode_id already exists, treat the
+  // whole call as a no-op for episodes/turns (caller is replaying).
+  const existingEpisodes = await layer.listEpisodes(session.id)
+  if (existingEpisodes.length === 0) {
+    let segNum = 0
+    for (const seg of segments) {
+      segNum++
+      const episodeId = `E-${session.id}-${String(segNum).padStart(3, '0')}`
+      const isFirstSegment = segNum === 1
+      // Crosslinks + tags from reflectResult attach to the first segment
+      // only — they're session-level summaries, not per-Episode.
+      await layer.appendEpisode(session.id, {
         episode_id: episodeId,
-        speaker: step.kind, // 'user' | 'agent' | 'tool' | 'system' | ...
-        t: step.t,
-        raw_text: step.content,
+        episode_type: 'interaction',
+        ...(isFirstSegment && reflectResult?.memory.tags
+          ? { episode_tag: reflectResult.memory.tags }
+          : {}),
+        ...(isFirstSegment &&
+        reflectResult?.memory.linked_atoms &&
+        reflectResult.memory.linked_atoms.length > 0
+          ? { crosslinks: { references: reflectResult.memory.linked_atoms } }
+          : {}),
+        provenance: {
+          written_by: 'gks-session-end',
+          ...(reflectResult && isFirstSegment ? { llm_contribution: ['summary'] } : {}),
+          authoritative_fields: [
+            `episode_reason:${seg.reason}`,
+            ...(seg.signals.gapMs !== undefined ? [`gap_ms:${seg.signals.gapMs}`] : []),
+            ...(seg.signals.cosine !== undefined ? [`cosine:${seg.signals.cosine.toFixed(4)}`] : []),
+          ],
+        },
       })
+
+      for (let i = seg.start_index; i < seg.end_index; i++) {
+        const step = trace[i]!
+        await layer.appendTurn(session.id, {
+          episode_id: episodeId,
+          speaker: step.kind,
+          t: step.t,
+          raw_text: step.content,
+        })
+      }
     }
   }
 

@@ -962,6 +962,14 @@ export type {
   LookupByAtomResult,
   TurnRef,
 } from './episodic-v2.js'
+export { detectEpisodeBoundaries } from './episode-boundary.js'
+export type {
+  EpisodeBoundaryDetector,
+  EpisodeBoundaryOptions,
+  EpisodeBoundaryReason,
+  EpisodeBoundarySignals,
+  EpisodeSegment,
+} from './episode-boundary.js'
 export { InboundQueue } from './inbound.js'
 export { ATOMIC_ID_PATTERN, isAtomicId, assertAtomicId } from './atomic-id.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'

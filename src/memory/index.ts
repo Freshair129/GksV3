@@ -54,9 +54,11 @@ import { createReranker, rerank, type Reranker, type RerankerOptions } from './r
 import {
   CommunityCache,
   summarizeCommunity as doSummarizeCommunity,
+  type CommunityCacheLike,
   type CommunityRequest,
   type CommunityResult,
 } from './community.js'
+import { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
 import {
   withCache,
   type ObsidianAdapter,
@@ -144,6 +146,18 @@ export interface MemoryStoreOptions {
    * flushes the snapshot into session.json.
    */
   cost?: CostTrackerOptions | false
+  /**
+   * Community-summary cache configuration. Defaults to in-memory only
+   * (LRU 64 entries). Set `persistDir` to enable a disk-backed tier
+   * (PERSISTED-COMMUNITY-SUMMARIES). Cache files live at
+   * `<persistDir>/<sha256-key>.json`.
+   */
+  communityCache?: {
+    /** Directory for disk-tier cache files. Omit to disable disk tier. */
+    persistDir?: string
+    /** Cap on disk usage in bytes. Default 50 MiB. */
+    maxBytes?: number
+  }
 }
 
 export class MemoryStore {
@@ -255,6 +269,19 @@ export class MemoryStore {
     }
 
     this.costTracker = opts.cost === false ? null : new CostTracker(opts.cost ?? {})
+
+    // Community cache: in-memory by default. Wrap in TieredCommunityCache
+    // when persistDir is configured (PERSISTED-COMMUNITY-SUMMARIES).
+    const memoryCache = new CommunityCache()
+    if (opts.communityCache?.persistDir) {
+      const disk = new DiskCommunityCache({
+        dir: opts.communityCache.persistDir,
+        ...(opts.communityCache.maxBytes !== undefined ? { maxBytes: opts.communityCache.maxBytes } : {}),
+      })
+      this._communityCache = new TieredCommunityCache(memoryCache, disk)
+    } else {
+      this._communityCache = memoryCache
+    }
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -669,7 +696,7 @@ export class MemoryStore {
     )
   }
 
-  private readonly _communityCache: CommunityCache = new CommunityCache()
+  private readonly _communityCache: CommunityCacheLike
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
@@ -920,12 +947,15 @@ export {
 } from './community.js'
 export type {
   CommunityAtomic,
+  CommunityCacheLike,
   CommunityEdgeKey,
   CommunityRequest,
   CommunityResult,
   SemanticSearchFn,
   SummarizeCommunityDeps,
 } from './community.js'
+export { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
+export type { DiskCommunityCacheOptions } from './community-cache-disk.js'
 export {
   createMockObsidianAdapter,
   createRestObsidianAdapter,

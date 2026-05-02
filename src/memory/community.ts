@@ -15,6 +15,8 @@
  * primitive and belong on a separate API.
  */
 
+import { createHash } from 'node:crypto'
+
 import type { AtomicEntry, AtomicNote } from './types.js'
 import type { TldrGenerator } from './tldr.js'
 import { heuristicTldrGenerator } from './tldr.js'
@@ -277,6 +279,14 @@ function cacheKey(
   mode: string = 'structural',
   semanticThreshold: number = DEFAULT_SEMANTIC_THRESHOLD,
   semanticTopK: number = DEFAULT_SEMANTIC_TOPK,
+  /**
+   * Body-hash component used for content-addressed invalidation
+   * (PERSISTED-COMMUNITY). Pass an empty array to skip — in-memory
+   * caches don't need it, but disk caches require it for stale
+   * detection. Order-stable: callers supply hashes already aligned
+   * to sorted memberIds.
+   */
+  memberBodyHashes: string[] = [],
 ): string {
   return [
     [...memberIds].sort().join(','),
@@ -285,6 +295,7 @@ function cacheKey(
     mode,
     semanticThreshold.toFixed(3),
     String(semanticTopK),
+    memberBodyHashes.join(','),
   ].join('|')
 }
 
@@ -306,15 +317,31 @@ coherent narrative that:
 Plain prose, no markdown headings, no JSON. Respond with ONLY the
 synthesis text.`
 
+/**
+ * Minimal cache interface compatible with both the in-memory
+ * CommunityCache and the disk-tier TieredCommunityCache. get/set may
+ * be sync or async; summarizeCommunity awaits both so impls compose
+ * transparently.
+ */
+export interface CommunityCacheLike {
+  get(key: string): CommunityResult | undefined | Promise<CommunityResult | undefined>
+  set(key: string, result: CommunityResult): void | Promise<void>
+}
+
 export interface SummarizeCommunityDeps {
   atomic: CommunityAtomic
-  cache: CommunityCache
+  cache: CommunityCacheLike
   /**
    * Required when `req.mode` is 'semantic' or 'hybrid'. Resolves seed
    * atoms to their nearest neighbours via the vector layer. Pluggable
    * so tests can stub.
    */
   vectorSearch?: SemanticSearchFn
+}
+
+/** Stable short hash for body content (16 hex chars of SHA-256). */
+function shortHash(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
 }
 
 const DEFAULT_SEMANTIC_THRESHOLD = 0.75
@@ -406,8 +433,29 @@ export async function summarizeCommunity(
   }
 
   const memberIds = members.map((m) => m.id)
-  const key = cacheKey(memberIds, generator.name, includeBodies, mode, semanticThreshold, semanticTopK)
-  const cached = deps.cache.get(key)
+  // Body hashes for content-addressed invalidation (PERSISTED-COMMUNITY).
+  // Computed in stable order matching sorted memberIds. Lookup via
+  // atomic.lookup() so the body is fetched from disk only when caching
+  // matters — synchronous in-memory cache callers can pass an empty
+  // array and still benefit from the same code path.
+  const memberBodyHashes = await Promise.all(
+    [...memberIds].sort().map(async (id) => {
+      const note = await deps.atomic.lookup(id)
+      if (!note) return ''
+      const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+      return shortHash(body)
+    }),
+  )
+  const key = cacheKey(
+    memberIds,
+    generator.name,
+    includeBodies,
+    mode,
+    semanticThreshold,
+    semanticTopK,
+    memberBodyHashes,
+  )
+  const cached = await Promise.resolve(deps.cache.get(key))
   if (cached) return { ...cached, ...(breakdown ? { membership_breakdown: breakdown } : {}) }
 
   const { text, usedTldrCount, usedBodyCount } = await buildCommunityPrompt(
@@ -445,7 +493,7 @@ export async function summarizeCommunity(
     generator: generator.name,
     ...(breakdown ? { membership_breakdown: breakdown } : {}),
   }
-  deps.cache.set(key, result)
+  await Promise.resolve(deps.cache.set(key, result))
   // Reading from `cache.get(key)` would now report `cached: true`; the
   // *first* return shouldn't, hence the explicit copy below.
   return { ...result, cached: false }

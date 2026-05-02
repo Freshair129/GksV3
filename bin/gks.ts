@@ -1861,6 +1861,7 @@ async function cmdEpisodicLookup(argv: string[]): Promise<void> {
     options: {
       ...GLOBAL_OPTIONS,
       predicates: { type: 'string' },
+      'cross-namespace': { type: 'boolean' },
     },
   })
   const flags = readGlobals(values)
@@ -1879,7 +1880,17 @@ async function cmdEpisodicLookup(argv: string[]): Promise<void> {
       : undefined
 
   const store = await openStore(flags)
-  const result = await store.lookupByAtom(atomId, predicates ? { predicates } : {})
+  const result = await store.lookupByAtom(atomId, {
+    ...(predicates ? { predicates } : {}),
+    // GLOBAL_OPTIONS already populates flags.namespace from --tenant /
+    // --user / --agent flags. Pass it through unless the caller opted
+    // into --cross-namespace.
+    ...(values['cross-namespace']
+      ? { crossNamespace: true }
+      : Object.keys(flags.namespace).length > 0
+        ? { namespace: flags.namespace }
+        : {}),
+  })
 
   emit(flags, result, () => {
     console.log(
@@ -2019,8 +2030,9 @@ Subcommands
   episodic show SESSION_ID [--full]           pretty-print a v2 episodic session
   episodic migrate SESSION_ID [--force]       re-emit a v1 markdown session into v2 layout
   episodic list                               list all v2 sessions from _index.jsonl
-  episodic lookup ATOM--ID [--predicates=a,b]
+  episodic lookup ATOM--ID [--predicates=a,b] [--cross-namespace]
                                               reverse-lookup: episodes/turns citing the atom
+                                              (default: scoped to active --tenant / --user / --agent)
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

@@ -186,3 +186,155 @@ describe('MemoryStore.lookupByAtom', () => {
     expect(r.episodes[0]!.session_id).toBe('S-INT')
   })
 })
+
+// ─── V1-V7: NAMESPACED-EPISODIC-LOOKUP ─────────────────────────────────
+
+describe('MemoryStore.lookupByAtom — namespace gate (BLUEPRINT--NAMESPACED-EPISODIC-LOOKUP)', () => {
+  let root = ''
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'gks-ns-rev-'))
+  })
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true })
+  })
+
+  /** Helper: write three sessions, one per tenant + one without ns. */
+  async function seed(store: MemoryStore): Promise<void> {
+    await store.episodicV2.writeSession(
+      newEpisodicSession({ session_id: 'S-A', namespace: { tenant_id: 'A' } }),
+    )
+    await store.episodicV2.appendEpisode('S-A', {
+      episode_id: 'EA',
+      episode_type: 'interaction',
+      crosslinks: { discusses: ['FEAT--FOO'] },
+    })
+    await store.episodicV2.finaliseSession('S-A', { ended_at: '2026-05-01T11:00:00Z' })
+
+    await store.episodicV2.writeSession(
+      newEpisodicSession({ session_id: 'S-B', namespace: { tenant_id: 'B' } }),
+    )
+    await store.episodicV2.appendEpisode('S-B', {
+      episode_id: 'EB',
+      episode_type: 'interaction',
+      crosslinks: { discusses: ['FEAT--FOO'] },
+    })
+    await store.episodicV2.finaliseSession('S-B', { ended_at: '2026-05-01T11:00:00Z' })
+
+    // Session without an explicit namespace (legacy / pre-NS data).
+    await store.episodicV2.writeSession(newEpisodicSession({ session_id: 'S-LEGACY' }))
+    await store.episodicV2.appendEpisode('S-LEGACY', {
+      episode_id: 'EL',
+      episode_type: 'interaction',
+      crosslinks: { discusses: ['FEAT--FOO'] },
+    })
+    await store.episodicV2.finaliseSession('S-LEGACY', { ended_at: '2026-05-01T11:00:00Z' })
+  }
+
+  it('V1: defaultNamespace tenant_id=A excludes B + legacy', async () => {
+    const store = new MemoryStore({
+      root,
+      embedder: mockEmbedder(32),
+      defaultNamespace: { tenant_id: 'A' },
+    })
+    await store.init()
+    await seed(store)
+    const r = await store.lookupByAtom('FEAT--FOO')
+    expect(r.episodes.map((e) => e.session_id).sort()).toEqual(['S-A'])
+  })
+
+  it('V2: empty defaultNamespace returns every match (single-tenant default)', async () => {
+    const store = new MemoryStore({ root, embedder: mockEmbedder(32) })
+    await store.init()
+    await seed(store)
+    const r = await store.lookupByAtom('FEAT--FOO')
+    expect(r.episodes.map((e) => e.session_id).sort()).toEqual(['S-A', 'S-B', 'S-LEGACY'])
+  })
+
+  it('V3: explicit namespace opt overrides defaultNamespace', async () => {
+    const store = new MemoryStore({
+      root,
+      embedder: mockEmbedder(32),
+      defaultNamespace: { tenant_id: 'A' },
+    })
+    await store.init()
+    await seed(store)
+    const r = await store.lookupByAtom('FEAT--FOO', { namespace: { tenant_id: 'B' } })
+    expect(r.episodes.map((e) => e.session_id).sort()).toEqual(['S-B'])
+  })
+
+  it('V4: crossNamespace=true bypasses the filter', async () => {
+    const store = new MemoryStore({
+      root,
+      embedder: mockEmbedder(32),
+      defaultNamespace: { tenant_id: 'A' },
+    })
+    await store.init()
+    await seed(store)
+    const r = await store.lookupByAtom('FEAT--FOO', { crossNamespace: true })
+    expect(r.episodes.map((e) => e.session_id).sort()).toEqual(['S-A', 'S-B', 'S-LEGACY'])
+  })
+
+  it('V5: legacy session (no namespace) is excluded under non-empty filter, included under empty', async () => {
+    const scoped = new MemoryStore({
+      root,
+      embedder: mockEmbedder(32),
+      defaultNamespace: { tenant_id: 'A' },
+    })
+    await scoped.init()
+    await seed(scoped)
+    const scopedRes = await scoped.lookupByAtom('FEAT--FOO')
+    expect(scopedRes.episodes.map((e) => e.session_id)).not.toContain('S-LEGACY')
+
+    // Use the SAME store with crossNamespace to verify legacy is reachable.
+    const wide = await scoped.lookupByAtom('FEAT--FOO', { crossNamespace: true })
+    expect(wide.episodes.map((e) => e.session_id)).toContain('S-LEGACY')
+  })
+
+  it('V6: predicates filter composes with namespace filter', async () => {
+    const store = new MemoryStore({
+      root,
+      embedder: mockEmbedder(32),
+      defaultNamespace: { tenant_id: 'A' },
+    })
+    await store.init()
+    await seed(store)
+    // Add another A-namespace episode that uses 'implements' instead.
+    await store.episodicV2.writeSession(
+      newEpisodicSession({ session_id: 'S-A2', namespace: { tenant_id: 'A' } }),
+    )
+    await store.episodicV2.appendEpisode('S-A2', {
+      episode_id: 'EA2',
+      episode_type: 'interaction',
+      crosslinks: { implements: ['FEAT--FOO'] },
+    })
+    await store.episodicV2.finaliseSession('S-A2', { ended_at: '2026-05-01T11:00:00Z' })
+
+    // Default namespace (A) + only 'implements' predicate → S-A2 only.
+    const r = await store.lookupByAtom('FEAT--FOO', { predicates: ['implements'] })
+    expect(r.episodes.map((e) => e.session_id)).toEqual(['S-A2'])
+  })
+
+  it('V7: matchesNamespace helper handles wildcards + missing fields', async () => {
+    const { matchesNamespace } = await import('../../src/memory/episodic-v2.js')
+    // Empty filter admits everything.
+    expect(matchesNamespace({ tenant_id: 'A' }, {})).toBe(true)
+    expect(matchesNamespace(undefined, {})).toBe(true)
+    // Non-empty filter requires session ns to match.
+    expect(matchesNamespace({ tenant_id: 'A' }, { tenant_id: 'A' })).toBe(true)
+    expect(matchesNamespace({ tenant_id: 'A' }, { tenant_id: 'B' })).toBe(false)
+    expect(matchesNamespace(undefined, { tenant_id: 'A' })).toBe(false)
+    // Multi-key filter — all must match.
+    expect(
+      matchesNamespace({ tenant_id: 'A', user_id: 'u1' }, { tenant_id: 'A', user_id: 'u1' }),
+    ).toBe(true)
+    expect(
+      matchesNamespace({ tenant_id: 'A', user_id: 'u1' }, { tenant_id: 'A', user_id: 'u2' }),
+    ).toBe(false)
+    // Session has more keys than the filter cares about → still matches.
+    expect(
+      matchesNamespace({ tenant_id: 'A', user_id: 'u1', agent_id: 'a' }, { tenant_id: 'A' }),
+    ).toBe(true)
+  })
+})

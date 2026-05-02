@@ -706,15 +706,42 @@ export class MemoryStore {
 
   /**
    * Reverse episodic lookup — find every v2 episode/turn whose typed
-   * crosslinks reference `atomId`. Implements BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
-   * Linear scan over the v2 store; pair with a cache tier for large installations.
+   * crosslinks reference `atomId`. Implements BLUEPRINT--REVERSE-EPISODIC-LOOKUP
+   * + BLUEPRINT--NAMESPACED-EPISODIC-LOOKUP for the namespace gate.
+   *
+   * Default behaviour scopes results to `defaultNamespace`. Pass
+   * `crossNamespace: true` for admin / migration paths.
    */
   async lookupByAtom(
     atomId: string,
-    opts?: { predicates?: string[] },
+    opts: import('./episodic-v2.js').LookupByAtomOptions = {},
   ): Promise<import('./episodic-v2.js').LookupByAtomResult> {
-    const { scanEpisodicForAtom } = await import('./episodic-v2.js')
-    return scanEpisodicForAtom(this.episodicV2, atomId, opts)
+    const { scanEpisodicForAtom, matchesNamespace } = await import('./episodic-v2.js')
+    const passOpts = opts.predicates ? { predicates: opts.predicates } : {}
+    const result = await scanEpisodicForAtom(this.episodicV2, atomId, passOpts)
+
+    if (opts.crossNamespace) return result
+    const filterNs = opts.namespace ?? this.defaultNamespace
+    if (Object.keys(filterNs).length === 0) return result // single-tenant default
+
+    // Build set of allowed session_ids by reading session.json once per
+    // referenced session. Keep it bounded — episode/turn refs already
+    // came pre-filtered by predicate, so we only stat sessions that
+    // actually contributed a hit.
+    const referencedSessions = new Set<string>([
+      ...result.episodes.map((e) => e.session_id),
+      ...result.turns.map((t) => t.session_id),
+    ])
+    const allowed = new Set<string>()
+    for (const sessionId of referencedSessions) {
+      const sess = await this.episodicV2.readSession(sessionId)
+      if (matchesNamespace(sess?.namespace, filterNs)) allowed.add(sessionId)
+    }
+    return {
+      ...result,
+      episodes: result.episodes.filter((e) => allowed.has(e.session_id)),
+      turns: result.turns.filter((t) => allowed.has(t.session_id)),
+    }
   }
 
   /**
@@ -950,6 +977,7 @@ export type { PgGraphBackendOptions } from './graph/pg.js'
 export { EpisodicLayer } from './episodic.js'
 export {
   EpisodicLayerV2,
+  matchesNamespace,
   newEpisodicSession,
   scanEpisodicForAtom,
   validateEpisodicCrosslinks,
@@ -959,6 +987,7 @@ export type {
   EpisodicLayerV2Options,
   EpisodicLinkError,
   EpisodicValidateResult,
+  LookupByAtomOptions,
   LookupByAtomResult,
   TurnRef,
 } from './episodic-v2.js'

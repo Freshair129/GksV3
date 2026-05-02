@@ -420,6 +420,51 @@ export interface LookupByAtomResult {
 }
 
 /**
+ * Options for the public {@link MemoryStore.lookupByAtom} API
+ * (BLUEPRINT--NAMESPACED-EPISODIC-LOOKUP).
+ */
+export interface LookupByAtomOptions {
+  /** Restrict to specific crosslink predicates. Default = any. */
+  predicates?: string[]
+  /**
+   * Namespace filter. Defaults to `MemoryStore.defaultNamespace` —
+   * sessions with a different namespace are excluded. Mirrors the
+   * `RetrievalOptions.namespace` contract.
+   */
+  namespace?: import('./types.js').Namespace
+  /**
+   * Bypass the namespace filter — return refs across every namespace.
+   * Use for admin / migration paths only.
+   */
+  crossNamespace?: boolean
+}
+
+/**
+ * Match the convention from {@link namespaceAsFilter}: a session
+ * passes when every key set on `filterNs` matches the session's
+ * stored namespace value. Missing fields on either side are
+ * wildcards. An empty filter (`{}`) admits every session.
+ *
+ * Sessions written before EPISODIC-V2 may lack the `namespace`
+ * field entirely; they're treated as the empty namespace `{}` —
+ * included under empty filters, excluded under non-empty ones.
+ */
+export function matchesNamespace(
+  sessionNs: import('./types.js').Namespace | undefined,
+  filterNs: import('./types.js').Namespace,
+): boolean {
+  const setKeys = (Object.keys(filterNs) as Array<keyof import('./types.js').Namespace>).filter(
+    (k) => filterNs[k] !== undefined,
+  )
+  if (setKeys.length === 0) return true
+  if (!sessionNs) return false
+  for (const k of setKeys) {
+    if (sessionNs[k] !== filterNs[k]) return false
+  }
+  return true
+}
+
+/**
  * Live scan over every v2 episodic session in a layer for entries
  * whose typed crosslinks reference `atomId`. Returns a unified
  * `LookupByAtomResult` per BLUEPRINT--REVERSE-EPISODIC-LOOKUP.

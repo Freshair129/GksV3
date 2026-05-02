@@ -599,19 +599,26 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     'gks_lookup_by_atom',
     {
       description:
-        'Reverse episodic lookup: returns every v2 episode + turn whose typed crosslinks reference the given atom id, sorted chronologically. Optional `predicates[]` filter restricts to specific crosslink keys (e.g. ["implements", "discusses"]).',
+        'Reverse episodic lookup: returns every v2 episode + turn whose typed crosslinks reference the given atom id, sorted chronologically. Optional `predicates[]` filter restricts to specific crosslink keys (e.g. ["implements", "discusses"]). `namespace` / `crossNamespace` mirror the recall contract — default scope is the active namespace; pass `crossNamespace: true` for admin paths.',
       inputSchema: z
         .object({
           atomId: z.string(),
           predicates: z.array(z.string()).optional(),
+          namespace: namespaceSchema.optional(),
+          crossNamespace: z
+            .boolean()
+            .optional()
+            .describe('Bypass the namespace filter — admin / migration only.'),
         })
         .strict(),
     },
     async (args) => {
-      const result = await opts.store.lookupByAtom(
-        args.atomId,
-        args.predicates ? { predicates: args.predicates } : {},
-      )
+      const ns = mergeNs(opts.defaultNamespace, args.namespace)
+      const result = await opts.store.lookupByAtom(args.atomId, {
+        ...(args.predicates ? { predicates: args.predicates } : {}),
+        ...(ns ? { namespace: ns } : {}),
+        ...(args.crossNamespace ? { crossNamespace: true } : {}),
+      })
       return jsonReply(result)
     },
   )

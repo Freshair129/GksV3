@@ -201,6 +201,134 @@ export interface EpisodicMemory {
   summary: string
 }
 
+// ─── Episodic v2 (BLUEPRINT--EPISODIC-V2) ────────────────────────────────
+
+/**
+ * Schema-version marker on v2 episodic records. v1 files lack this
+ * field and are detected by absence (back-compat).
+ */
+export const EPISODIC_V2_SCHEMA_VERSION = '2.0.0'
+
+/**
+ * Predicate keys validated by `validate-links` on episode + turn
+ * crosslinks. Matches the convention atom crosslinks already use —
+ * orchestrator-defined predicates (e.g. `inspired_by`) pass through
+ * untouched with a warning.
+ */
+export const CORE_EPISODIC_PREDICATES = [
+  'discusses',
+  'implements',
+  'contradicts',
+  'supports',
+  'derived_from',
+  'references',
+] as const
+export type CoreEpisodicPredicate = (typeof CORE_EPISODIC_PREDICATES)[number]
+
+/**
+ * Predicate-keyed crosslinks. Same shape as atom crosslinks: keys
+ * are predicate names (open set), values are atom-id arrays. GKS
+ * stores them; orchestrators interpret the semantics.
+ */
+export type EpisodicCrosslinks = Record<string, string[]>
+
+/**
+ * Top-level episodic session record. Lives at
+ * `<episodicDir>/<session_id>/session.json`. Immutable after
+ * `finaliseSession` (i.e. `ended_at` set).
+ */
+export interface EpisodicSession {
+  schema_version: string
+  /** Free-form orchestrator id (e.g. "gks-v3", "EVA", "msp"). */
+  system: string
+  user_id?: string
+  instance_id?: string
+  session_id: string
+  started_at: string
+  ended_at?: string
+  namespace?: Namespace
+  summary?: string
+  outcomes?: string[]
+  tags?: string[]
+}
+
+/**
+ * One context-coherent slice of a session. Lives as one line in
+ * `<episodicDir>/<session_id>/episodes.jsonl`. Denormalised
+ * `turn_count` / `first_turn_id` / `last_turn_id` are maintained
+ * by `appendTurn` to avoid a turns.jsonl scan.
+ */
+export interface Episode {
+  episode_id: string
+  episode_type: 'interaction' | 'observation' | 'system_event'
+  episode_tag?: string[]
+  situation_context?: {
+    context_id?: string
+    interaction_mode?: 'casual' | 'discussion' | 'deep_discussion' | 'crisis'
+    stakes_level?: 'low' | 'medium' | 'high'
+    time_pressure?: 'low' | 'medium' | 'high'
+  }
+  crosslinks?: EpisodicCrosslinks
+  /** Number of turns whose `episode_id` matches this episode. */
+  turn_count: number
+  first_turn_id?: string
+  last_turn_id?: string
+  started_at?: string
+  ended_at?: string
+  provenance?: {
+    /** Free-form ('consolidator', 'MSP', 'agent:foo'). */
+    written_by?: string
+    llm_contribution?: string[]
+    authoritative_fields?: string[]
+  }
+}
+
+/**
+ * One observed message / action within an episode. Lives as one
+ * line in `<episodicDir>/<session_id>/turns.jsonl`. The
+ * `episode_id` field is the FK to its parent Episode (single
+ * source of truth for the episode↔turn relationship).
+ */
+export interface Turn {
+  turn_id: string
+  episode_id: string
+  /** ISO-8601 timestamp. */
+  t: string
+  /** Free-form ('user', 'agent', 'tool', 'system', ...). */
+  speaker: string
+  raw_text?: string
+  text_excerpt?: string
+  summary?: string
+  epistemic_mode?: 'reflect' | 'inquire' | 'explain' | 'explore'
+  semantic_frames?: string[]
+  salience_anchor?: {
+    phrase: string
+    /** 0..1 — how much this phrase carried the conversational load. */
+    resonance_impact: number
+    authority?: string
+  }
+  action?: {
+    action_type?: string
+    artifacts?: string[]
+    tools_used?: string[]
+  }
+  crosslinks?: EpisodicCrosslinks
+}
+
+/**
+ * Single line in `<episodicDir>/_index.jsonl` — one row per session
+ * for fast enumeration without stat-walking session directories.
+ */
+export interface EpisodicIndexRow {
+  session_id: string
+  schema_version?: string
+  started_at: string
+  ended_at?: string
+  episode_count: number
+  turn_count: number
+  summary?: string
+}
+
 /**
  * Reference to a code symbol in the consuming repository. Used by atoms
  * (ADRs / FEATs / FRAMEs) to point at the function / class / type they

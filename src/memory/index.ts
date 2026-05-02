@@ -47,6 +47,7 @@ import {
 } from './vector/embedder.js'
 import { CostTracker, type CostTrackerOptions } from '../lib/cost-tracker.js'
 import { EpisodicLayer } from './episodic.js'
+import { EpisodicLayerV2 } from './episodic-v2.js'
 import { InboundQueue } from './inbound.js'
 import { ATOMIC_ID_PATTERN, isAtomicId } from './atomic-id.js'
 import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
@@ -149,6 +150,12 @@ export class MemoryStore {
   readonly root: string
   readonly atomic: AtomicLayer
   readonly episodic: EpisodicLayer
+  /**
+   * v2 episodic layer (BLUEPRINT--EPISODIC-V2). Coexists with v1 in the
+   * same `episodicDir` — v1 lives at `<dir>/<session_id>.md`, v2 at
+   * `<dir>/<session_id>/{session.json, episodes.jsonl, turns.jsonl}`.
+   */
+  readonly episodicV2: EpisodicLayerV2
   readonly inbound: InboundQueue
   /** Optional Obsidian adapter (wrapped in TTL cache if configured). Null when omitted. */
   readonly obsidian: ObsidianAdapter | null
@@ -200,6 +207,9 @@ export class MemoryStore {
     this.episodic = new EpisodicLayer({
       memoryDir: opts.episodicDir ?? layout.memory,
       sessionDir: this.sessionDir,
+    })
+    this.episodicV2 = new EpisodicLayerV2({
+      episodicDir: opts.episodicDir ?? layout.memory,
     })
 
     this.inbound = new InboundQueue({
@@ -838,6 +848,16 @@ export type { HnswBackendOptions } from './vector/hnsw.js'
 export { createPgGraphBackend } from './graph/pg.js'
 export type { PgGraphBackendOptions } from './graph/pg.js'
 export { EpisodicLayer } from './episodic.js'
+export {
+  EpisodicLayerV2,
+  newEpisodicSession,
+  validateEpisodicCrosslinks,
+} from './episodic-v2.js'
+export type {
+  EpisodicLayerV2Options,
+  EpisodicLinkError,
+  EpisodicValidateResult,
+} from './episodic-v2.js'
 export { InboundQueue } from './inbound.js'
 export { ATOMIC_ID_PATTERN, isAtomicId, assertAtomicId } from './atomic-id.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'
@@ -904,6 +924,18 @@ export type {
 } from '../lib/telemetry-setup.js'
 export { retain, recall, reflect } from './api.js'
 export type { ReflectOptions, ReflectResult } from './api.js'
+export {
+  CORE_EPISODIC_PREDICATES,
+  EPISODIC_V2_SCHEMA_VERSION,
+} from './types.js'
+export type {
+  CoreEpisodicPredicate,
+  Episode,
+  EpisodicCrosslinks,
+  EpisodicIndexRow,
+  EpisodicSession,
+  Turn,
+} from './types.js'
 
 export { AuditLog } from './audit.js'
 export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'

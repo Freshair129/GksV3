@@ -88,32 +88,16 @@ Generator selection is automatic and follows the same env precedence as `gks inb
 
 ### Pre-commit hook integration (optional)
 
-To keep TL;DRs fresh automatically, drop a hook into `.git/hooks/pre-commit`:
+To keep TL;DRs fresh automatically, install the bundled hook:
 
 ```bash
-#!/usr/bin/env bash
-# .git/hooks/pre-commit — regenerate TL;DRs for staged atoms
-set -euo pipefail
-
-# Which staged files are atoms? (gks/<type>/<id>.md)
-mapfile -t staged_atoms < <(git diff --cached --name-only --diff-filter=AM | \
-  grep -E '^gks/(concept|adr|blueprint|feat|frame|insight|fact|rule|hotfix)/.+\.md$' || true)
-
-if [[ ${#staged_atoms[@]} -eq 0 ]]; then
-  exit 0
-fi
-
-# Map each path → atomic id (strip extension + leading dirs)
-ids=()
-for f in "${staged_atoms[@]}"; do
-  ids+=("$(basename "$f" .md)")
-done
-
-# Regenerate. Heuristic by default; export GKS_LLM_BASE_URL to use a
-# local SLM (~5s/atom) or ANTHROPIC_API_KEY for cloud.
-npx tsx bin/gks.ts tldr regenerate "${ids[@]}"
-npm run msp:index
-git add "${staged_atoms[@]}" gks/00_index/atomic_index.jsonl
+cp examples/drift-detection/pre-commit-tldr-regen.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
 ```
+
+The hook detects staged atom files (`gks/<type>/<id>.md`), runs
+`gks tldr regenerate` on each, rebuilds `atomic_index.jsonl`, and
+re-stages the rewritten frontmatter so it lands in the commit.
+Override with `git commit --no-verify` to skip on a one-off basis.
 
 The hook is intentionally **not** installed automatically — keeping TL;DRs perfectly fresh is a developer preference, not a hard correctness gate (the CI gate is `validate --tldr-staleness`, which can run as a soft warning rather than a blocker).

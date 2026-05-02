@@ -11,11 +11,14 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const CLI = resolve(__dirname, '..', '..', 'bin', 'gks.ts')
+const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 
 function run(args: string[], cwd = process.cwd()): { stdout: string; stderr: string; code: number } {
-  const result = spawnSync('npx', ['tsx', CLI, ...args], {
+  const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const result = spawnSync(cmd, ['tsx', CLI, ...args], {
     cwd,
     encoding: 'utf8',
+    shell: true,
     env: { ...process.env, GKS_EMBEDDER: 'mock', GKS_LOG_LEVEL: 'error' },
   })
   return {
@@ -198,4 +201,318 @@ describe('gks CLI', () => {
     expect(r.code).toBe(1)
     expect(r.stdout).toMatch(/Subcommands/)
   })
+
+  it('community summarize walks crosslinks and prints synthesis', async () => {
+    run(['init', `--root=${workdir}`])
+    // Build a minimal 3-atom chain: CONCEPT → ADR (parent_concept) → FEAT (parent_adr)
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const gksDir = path.join(workdir, 'gks')
+    for (const sub of ['concept', 'adr', 'feat', '00_index']) {
+      await fs.mkdir(path.join(gksDir, sub), { recursive: true })
+    }
+    await fs.writeFile(
+      path.join(gksDir, 'concept', 'CONCEPT--CLI-DEMO.md'),
+      [
+        '---',
+        'id: CONCEPT--CLI-DEMO',
+        'phase: 1',
+        'type: concept',
+        'status: stable',
+        'vault_id: default',
+        'title: CLI demo concept',
+        'summary_tldr: Concept tldr line.',
+        '---',
+        '',
+        '# CLI demo concept',
+        '',
+        'Body.',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+    await fs.writeFile(
+      path.join(gksDir, 'adr', 'ADR--CLI-DEMO.md'),
+      [
+        '---',
+        'id: ADR--CLI-DEMO',
+        'phase: 2',
+        'type: adr',
+        'status: stable',
+        'vault_id: default',
+        'title: CLI demo ADR',
+        'summary_tldr: ADR tldr line.',
+        'crosslinks: {"parent_concept":["CONCEPT--CLI-DEMO"]}',
+        '---',
+        '',
+        '# CLI demo ADR',
+        '',
+        'Body.',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+    await fs.writeFile(
+      path.join(gksDir, 'feat', 'FEAT--CLI-DEMO.md'),
+      [
+        '---',
+        'id: FEAT--CLI-DEMO',
+        'phase: 2',
+        'type: feat',
+        'status: stable',
+        'vault_id: default',
+        'title: CLI demo feat',
+        'summary_tldr: Feature tldr line.',
+        'crosslinks: {"parent_adr":["ADR--CLI-DEMO"]}',
+        '---',
+        '',
+        '# CLI demo feat',
+        '',
+        'Body.',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+    // Index it.
+    const indexer = resolve(__dirname, '..', '..', 'scripts', 'msp', 're-indexer.ts')
+    const idx = spawnSync(NPX, ['tsx', indexer, `--root=${workdir}`], {
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, GKS_LOG_LEVEL: 'error' },
+    })
+    expect(idx.status).toBe(0)
+
+    // Walk the chain.
+    const r = run([
+      'community',
+      'summarize',
+      'FEAT--CLI-DEMO',
+      `--root=${workdir}`,
+      '--hops=2',
+      '--edges=parent_adr,parent_concept',
+    ])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('community summary')
+    expect(r.stdout).toContain('CONCEPT--CLI-DEMO')
+    expect(r.stdout).toContain('ADR--CLI-DEMO')
+    expect(r.stdout).toContain('FEAT--CLI-DEMO')
+    expect(r.stdout).toContain('synthesis')
+
+    // --json gives a machine-readable result.
+    const j = run([
+      'community',
+      'summarize',
+      'FEAT--CLI-DEMO',
+      `--root=${workdir}`,
+      '--hops=2',
+      '--edges=parent_adr,parent_concept',
+      '--json',
+    ])
+    expect(j.code).toBe(0)
+    const parsed = JSON.parse(j.stdout) as {
+      members: string[]
+      summary: string
+      generator: string
+    }
+    expect(parsed.members).toContain('FEAT--CLI-DEMO')
+    expect(parsed.members).toContain('ADR--CLI-DEMO')
+    expect(parsed.members).toContain('CONCEPT--CLI-DEMO')
+    expect(parsed.generator).toBe('heuristic')
+    expect(parsed.summary.length).toBeGreaterThan(0)
+  }, 30_000)
+
+  it('community summarize errors out without a seed', async () => {
+    run(['init', `--root=${workdir}`])
+    const r = run(['community', 'summarize', `--root=${workdir}`])
+    expect(r.code).toBe(1)
+    expect(r.stderr).toMatch(/at least one atomic id/)
+  })
+
+  it('episodic list / show / migrate round-trip via CLI', async () => {
+    run(['init', `--root=${workdir}`])
+
+    // Programmatically write a v2 session (mirrors what endSession does).
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const v2Dir = path.join(workdir, '.brain/msp/projects/evaAI/memory/SESS-CLI-001')
+    await fs.mkdir(v2Dir, { recursive: true })
+    await fs.writeFile(
+      path.join(v2Dir, 'session.json'),
+      JSON.stringify(
+        {
+          schema_version: '2.0.0',
+          system: 'gks-v3',
+          session_id: 'SESS-CLI-001',
+          started_at: '2026-05-01T10:00:00Z',
+          ended_at: '2026-05-01T10:30:00Z',
+          summary: 'CLI smoke session',
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+    await fs.writeFile(
+      path.join(v2Dir, 'episodes.jsonl'),
+      JSON.stringify({
+        episode_id: 'E1',
+        episode_type: 'interaction',
+        turn_count: 2,
+        first_turn_id: 'T1',
+        last_turn_id: 'T2',
+      }) + '\n',
+      'utf8',
+    )
+    await fs.writeFile(
+      path.join(v2Dir, 'turns.jsonl'),
+      [
+        JSON.stringify({ turn_id: 'T1', episode_id: 'E1', t: '2026-05-01T10:00:00Z', speaker: 'user', raw_text: 'hello' }),
+        JSON.stringify({ turn_id: 'T2', episode_id: 'E1', t: '2026-05-01T10:00:05Z', speaker: 'agent', raw_text: 'hi' }),
+      ].join('\n') + '\n',
+      'utf8',
+    )
+    await fs.writeFile(
+      path.join(workdir, '.brain/msp/projects/evaAI/memory/_index.jsonl'),
+      JSON.stringify({
+        session_id: 'SESS-CLI-001',
+        schema_version: '2.0.0',
+        started_at: '2026-05-01T10:00:00Z',
+        ended_at: '2026-05-01T10:30:00Z',
+        episode_count: 1,
+        turn_count: 2,
+        summary: 'CLI smoke session',
+      }) + '\n',
+      'utf8',
+    )
+
+    // list
+    const list = run(['episodic', 'list', `--root=${workdir}`])
+    expect(list.code).toBe(0)
+    expect(list.stdout).toContain('SESS-CLI-001')
+    expect(list.stdout).toMatch(/episodes=1/)
+
+    // show (no --full → no turns)
+    const show = run(['episodic', 'show', 'SESS-CLI-001', `--root=${workdir}`])
+    expect(show.code).toBe(0)
+    expect(show.stdout).toContain('SESS-CLI-001')
+    expect(show.stdout).toMatch(/episodes:\s+1/)
+    expect(show.stdout).toContain('CLI smoke session')
+
+    // show --full → includes turns
+    const showFull = run(['episodic', 'show', 'SESS-CLI-001', '--full', `--root=${workdir}`])
+    expect(showFull.code).toBe(0)
+    expect(showFull.stdout).toContain('T1')
+    expect(showFull.stdout).toContain('hello')
+
+    // show on nonexistent
+    const missing = run(['episodic', 'show', 'NOT-A-SESSION', `--root=${workdir}`])
+    expect(missing.code).toBe(1)
+    expect(missing.stdout).toMatch(/no v2 session/)
+  }, 30_000)
+
+  it('community detect finds clusters and orphans via CLI', async () => {
+    run(['init', `--root=${workdir}`])
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const gksDir = path.join(workdir, 'gks')
+    await fs.mkdir(path.join(gksDir, 'concept'), { recursive: true })
+    const fm = (id: string, links?: Record<string, string[]>) =>
+      [
+        '---',
+        `id: ${id}`,
+        'phase: 1',
+        'type: concept',
+        'status: stable',
+        'vault_id: default',
+        `title: ${id}`,
+        ...(links ? [`crosslinks: ${JSON.stringify(links)}`] : []),
+        '---',
+        '',
+        `# ${id}`,
+        '',
+        'body',
+        '',
+      ].join('\n')
+    await fs.writeFile(
+      path.join(gksDir, 'concept', 'CONCEPT--PAIR-A.md'),
+      fm('CONCEPT--PAIR-A', { references: ['CONCEPT--PAIR-B'] }),
+      'utf8',
+    )
+    await fs.writeFile(path.join(gksDir, 'concept', 'CONCEPT--PAIR-B.md'), fm('CONCEPT--PAIR-B'), 'utf8')
+    await fs.writeFile(
+      path.join(gksDir, 'concept', 'CONCEPT--PAIR-C.md'),
+      fm('CONCEPT--PAIR-C', { references: ['CONCEPT--PAIR-D'] }),
+      'utf8',
+    )
+    await fs.writeFile(path.join(gksDir, 'concept', 'CONCEPT--PAIR-D.md'), fm('CONCEPT--PAIR-D'), 'utf8')
+    await fs.writeFile(path.join(gksDir, 'concept', 'CONCEPT--ORPHAN.md'), fm('CONCEPT--ORPHAN'), 'utf8')
+
+    const indexer = resolve(__dirname, '..', '..', 'scripts', 'msp', 're-indexer.ts')
+    const idx = spawnSync(NPX, ['tsx', indexer, `--root=${workdir}`], {
+      encoding: 'utf8',
+      shell: true,
+      env: { ...process.env, GKS_LOG_LEVEL: 'error' },
+    })
+    expect(idx.status).toBe(0)
+
+    // Plain output
+    const r = run(['community', 'detect', `--root=${workdir}`])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('community detect:')
+    expect(r.stdout).toContain('CONCEPT--PAIR-A')
+    expect(r.stdout).toContain('CONCEPT--ORPHAN')
+    expect(r.stdout).toMatch(/orphans/)
+
+    // --json round-trip
+    const j = run(['community', 'detect', `--root=${workdir}`, '--json'])
+    expect(j.code).toBe(0)
+    const parsed = JSON.parse(j.stdout) as {
+      communities: Array<{ community_id: string; members: string[]; size: number }>
+      orphans: string[]
+    }
+    expect(parsed.communities.length).toBeGreaterThanOrEqual(2)
+    expect(parsed.orphans).toContain('CONCEPT--ORPHAN')
+  }, 30_000)
+
+  it('episodic migrate moves a v1 markdown session into v2 layout', async () => {
+    run(['init', `--root=${workdir}`])
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+
+    // Write a v1 markdown + matching trace.
+    const memDir = path.join(workdir, '.brain/msp/projects/evaAI/memory')
+    const sessionDir = path.join(workdir, '.brain/msp/projects/evaAI/session')
+    await fs.mkdir(memDir, { recursive: true })
+    await fs.mkdir(sessionDir, { recursive: true })
+    await fs.writeFile(
+      path.join(memDir, 'V1-SESS.md'),
+      '---\nid: V1-SESS\nsession_id: V1-SESS\nstarted_at: "2026-05-01T09:00:00Z"\nended_at: "2026-05-01T09:30:00Z"\n---\n\n# V1 session body\n\nLegacy markdown.\n',
+      'utf8',
+    )
+    await fs.writeFile(
+      path.join(sessionDir, 'V1-SESS.trace.jsonl'),
+      [
+        JSON.stringify({ t: '2026-05-01T09:00:00Z', session_id: 'V1-SESS', kind: 'user', content: 'q' }),
+        JSON.stringify({ t: '2026-05-01T09:00:05Z', session_id: 'V1-SESS', kind: 'agent', content: 'a' }),
+      ].join('\n') + '\n',
+      'utf8',
+    )
+
+    const r = run(['episodic', 'migrate', 'V1-SESS', `--root=${workdir}`])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain('V1-SESS')
+    expect(r.stdout).toMatch(/v2 episode:/)
+
+    // v2 file exists and carries 2 turns
+    const v2sessionJson = path.join(memDir, 'V1-SESS', 'session.json')
+    const v2Text = await fs.readFile(v2sessionJson, 'utf8')
+    expect(v2Text).toContain('"schema_version": "2.0.0"')
+    const turnsText = await fs.readFile(path.join(memDir, 'V1-SESS', 'turns.jsonl'), 'utf8')
+    expect(turnsText.split('\n').filter((l) => l.length > 0)).toHaveLength(2)
+
+    // Re-running without --force is refused
+    const again = run(['episodic', 'migrate', 'V1-SESS', `--root=${workdir}`])
+    expect(again.code).toBe(1)
+    expect(again.stderr).toMatch(/already exists/)
+  }, 30_000)
 })

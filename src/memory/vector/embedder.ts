@@ -16,6 +16,7 @@
 
 import { createHash } from 'node:crypto'
 import { createLogger } from '../../lib/logger.js'
+import { createNomicEmbedder } from './embedder-nomic.js'
 import { extractHttpStatus, withRetry } from '../../lib/retry.js'
 import {
   CircuitBreaker,
@@ -86,7 +87,7 @@ function usageOrEstimate(embedder: Embedder, texts: string[]): number {
 }
 
 export interface EmbedderInfo {
-  provider: 'ollama' | 'openai' | 'mock'
+  provider: 'nomic' | 'ollama' | 'openai' | 'mock'
   model: string
   dimension: number
 }
@@ -97,13 +98,20 @@ export interface Embedder extends EmbedderInfo {
 }
 
 export interface EmbedderOptions {
-  provider?: 'ollama' | 'openai' | 'mock' | 'auto'
+  provider?: 'nomic' | 'ollama' | 'openai' | 'mock' | 'auto'
   ollamaBaseUrl?: string
   ollamaModel?: string
   openaiApiKey?: string
   openaiModel?: string
   openaiBaseUrl?: string
   mockDimension?: number
+  /**
+   * Precision for the local nomic embedder. fp32 (default) preserves
+   * full quality at ~550MB; q8 (~140MB) trades <2% MTEB quality for a
+   * 4× smaller footprint and 2-3× CPU speedup. Read from
+   * `GKS_NOMIC_DTYPE` env var when not passed.
+   */
+  nomicDtype?: import('./embedder-nomic.js').NomicDtype
   /** For tests / pinned benchmarks — skip probing and force this provider. */
   forceProvider?: 'ollama' | 'openai' | 'mock'
   /**
@@ -137,8 +145,21 @@ export async function createEmbedder(opts: EmbedderOptions = {}): Promise<Embedd
   if (forced === 'mock') return mockEmbedder(opts.mockDimension ?? DEFAULT_MOCK_DIM)
   if (forced === 'openai') return openaiEmbedder(opts)
   if (forced === 'ollama') return ollamaEmbedder(opts)
+  if (forced === 'nomic') {
+    return opts.nomicDtype ? createNomicEmbedder({ dtype: opts.nomicDtype }) : createNomicEmbedder()
+  }
 
-  // Auto mode: try Ollama, fall back to OpenAI, fall back to mock.
+  // Auto mode: nomic → Ollama → OpenAI → mock
+  try {
+    const e = opts.nomicDtype ? createNomicEmbedder({ dtype: opts.nomicDtype }) : createNomicEmbedder()
+    // warm-up probe — triggers download on first run
+    await e.embed('ping')
+    log.info('embedder: nomic selected (local, Thai+English)')
+    return e
+  } catch (err) {
+    log.warn('embedder: nomic unavailable, trying ollama', { err: String(err) })
+  }
+
   const ollamaUrl = opts.ollamaBaseUrl ?? process.env['OLLAMA_BASE_URL'] ?? DEFAULT_OLLAMA_URL
   if (await isOllamaAvailable(ollamaUrl)) {
     log.info('embedder: ollama selected', { url: ollamaUrl })
@@ -147,7 +168,7 @@ export async function createEmbedder(opts: EmbedderOptions = {}): Promise<Embedd
 
   const apiKey = opts.openaiApiKey ?? process.env['OPENAI_API_KEY']
   if (apiKey) {
-    log.info('embedder: openai selected (ollama unavailable)')
+    log.info('embedder: openai selected')
     return openaiEmbedder({ ...opts, openaiApiKey: apiKey })
   }
 

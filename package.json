@@ -82,7 +82,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/bin/gks.js dist/bin/gks-mcp-server.js",
+    "build": "tsc -p tsconfig.build.json && node -e \"['dist/bin/gks.js','dist/bin/gks-mcp-server.js'].forEach(f=>{try{const s=require('fs').statSync(f);require('fs').chmodSync(f,s.mode|0o111)}catch{}})\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -102,18 +102,26 @@
     "rerank:down": "docker compose -f docker-compose.rerank.yml down",
     "rerank:logs": "docker compose -f docker-compose.rerank.yml logs -f",
     "quickstart": "tsx examples/quickstart.ts",
+    "quickstart:local": "tsx examples/quickstart-local.ts",
+    "benchmarks": "npm run bench:sweep -- --config=benchmarks/sweep.example.json",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish",
     "poc:bench-gate": "tsx scripts/poc/measure-gate-overhead.ts"
   },
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.1",
-    "hnswlib-node": "^3.0.0",
     "pg": "^8.20.0",
     "pg-copy-streams": "^7.0.0",
     "yaml": "^2.5.1"
+  },
+  "optionalDependencies": {
+    "hnswlib-node": "^3.0.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

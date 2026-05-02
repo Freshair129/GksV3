@@ -1,6 +1,6 @@
 # GKS v3 — Architecture
 
-Companion to `BLUEPRINT--memory` and `FRAME--TRI-BRAIN-ARCHITECTURE`.
+Companion to `BLUEPRINT--memory`.
 Where the BLUEPRINT is the canonical spec, this page is the
 "how-it's-actually-wired" overview for engineers picking up the codebase.
 

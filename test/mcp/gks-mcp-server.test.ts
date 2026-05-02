@@ -66,6 +66,7 @@ describe('gks-mcp-server', () => {
     const names = list.tools.map((t) => t.name).sort()
     expect(names).toEqual(
       [
+        // core verbs (ADR-008)
         'gks_retain',
         'gks_recall',
         'gks_lookup',
@@ -73,12 +74,22 @@ describe('gks-mcp-server', () => {
         'gks_propose_inbound',
         'gks_reflect',
         'gks_recall_cross_namespace',
+        // ADR-014 gates
         'gks_verify_flow',
         'gks_validate_links',
         'gks_new_feature',
         'gks_hotfix_open',
         'gks_hotfix_list',
         'gks_hotfix_close',
+        // post-PR-25 features
+        'gks_tldr_regenerate',
+        'gks_community_summarize',
+        'gks_community_detect',
+        'gks_episodic_show',
+        'gks_episodic_migrate',
+        'gks_episodic_list',
+        'gks_lookup_by_atom',
+        // POC + Issue (from main)
         'gks_poc_open',
         'gks_poc_start',
         'gks_poc_list',

@@ -47,9 +47,24 @@ import {
 } from './vector/embedder.js'
 import { CostTracker, type CostTrackerOptions } from '../lib/cost-tracker.js'
 import { EpisodicLayer } from './episodic.js'
+import { EpisodicLayerV2 } from './episodic-v2.js'
 import { InboundQueue } from './inbound.js'
 import { ATOMIC_ID_PATTERN, isAtomicId } from './atomic-id.js'
 import { createReranker, rerank, type Reranker, type RerankerOptions } from './rerank.js'
+import {
+  CommunityCache,
+  summarizeCommunity as doSummarizeCommunity,
+  type CommunityCacheLike,
+  type CommunityRequest,
+  type CommunityResult,
+} from './community.js'
+import { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
+import {
+  detectCommunities as doDetectCommunities,
+  labelCommunities,
+  type DetectCommunitiesOptions,
+  type DetectCommunitiesResult,
+} from './community-detect.js'
 import {
   withCache,
   type ObsidianAdapter,
@@ -137,12 +152,30 @@ export interface MemoryStoreOptions {
    * flushes the snapshot into session.json.
    */
   cost?: CostTrackerOptions | false
+  /**
+   * Community-summary cache configuration. Defaults to in-memory only
+   * (LRU 64 entries). Set `persistDir` to enable a disk-backed tier
+   * (PERSISTED-COMMUNITY-SUMMARIES). Cache files live at
+   * `<persistDir>/<sha256-key>.json`.
+   */
+  communityCache?: {
+    /** Directory for disk-tier cache files. Omit to disable disk tier. */
+    persistDir?: string
+    /** Cap on disk usage in bytes. Default 50 MiB. */
+    maxBytes?: number
+  }
 }
 
 export class MemoryStore {
   readonly root: string
   readonly atomic: AtomicLayer
   readonly episodic: EpisodicLayer
+  /**
+   * v2 episodic layer (BLUEPRINT--EPISODIC-V2). Coexists with v1 in the
+   * same `episodicDir` — v1 lives at `<dir>/<session_id>.md`, v2 at
+   * `<dir>/<session_id>/{session.json, episodes.jsonl, turns.jsonl}`.
+   */
+  readonly episodicV2: EpisodicLayerV2
   readonly inbound: InboundQueue
   /** Optional Obsidian adapter (wrapped in TTL cache if configured). Null when omitted. */
   readonly obsidian: ObsidianAdapter | null
@@ -195,6 +228,9 @@ export class MemoryStore {
       memoryDir: opts.episodicDir ?? layout.memory,
       sessionDir: this.sessionDir,
     })
+    this.episodicV2 = new EpisodicLayerV2({
+      episodicDir: opts.episodicDir ?? layout.memory,
+    })
 
     this.inbound = new InboundQueue({
       inboundDir: opts.inboundDir ?? layout.inbound,
@@ -239,6 +275,19 @@ export class MemoryStore {
     }
 
     this.costTracker = opts.cost === false ? null : new CostTracker(opts.cost ?? {})
+
+    // Community cache: in-memory by default. Wrap in TieredCommunityCache
+    // when persistDir is configured (PERSISTED-COMMUNITY-SUMMARIES).
+    const memoryCache = new CommunityCache()
+    if (opts.communityCache?.persistDir) {
+      const disk = new DiskCommunityCache({
+        dir: opts.communityCache.persistDir,
+        ...(opts.communityCache.maxBytes !== undefined ? { maxBytes: opts.communityCache.maxBytes } : {}),
+      })
+      this._communityCache = new TieredCommunityCache(memoryCache, disk)
+    } else {
+      this._communityCache = memoryCache
+    }
   }
 
   // ─── initialization ────────────────────────────────────────────────────
@@ -448,12 +497,17 @@ export class MemoryStore {
 
     const tasks: Array<Promise<RetrievalHit[]>> = []
 
+    // Snippet budget: undefined → default 240 chars; 0 → index-only (title);
+    // any positive int → custom cap. Forwarded into the per-source mappers so
+    // expensive body slicing is avoided when the caller doesn't want it.
+    const snippetMax = opts.snippetMaxChars
+
     if (sources.includes('atomic')) {
       tasks.push(
         (async () => {
           if (looksLikeAtomicId(query)) {
             const hit = await this.atomic.searchById(query)
-            return hit ? [atomicHitToRetrieval(hit)] : []
+            return hit ? [atomicHitToRetrieval(hit, snippetMax)] : []
           }
           return []
         })(),
@@ -469,7 +523,7 @@ export class MemoryStore {
             ...(opts.scoreThreshold !== undefined ? { scoreThreshold: opts.scoreThreshold } : {}),
             ...(namespaceFilter ? { filter: namespaceFilter } : {}),
           })
-          return vectorHits.map(vectorHitToRetrieval)
+          return vectorHits.map((h) => vectorHitToRetrieval(h, snippetMax))
         })(),
       )
     }
@@ -483,7 +537,7 @@ export class MemoryStore {
             ...(opts.scoreThreshold !== undefined ? { scoreThreshold: opts.scoreThreshold } : {}),
             ...(namespaceFilter ? { filter: namespaceFilter } : {}),
           })
-          return hits.map(vectorHitToRetrieval)
+          return hits.map((h) => vectorHitToRetrieval(h, snippetMax))
         })(),
       )
     }
@@ -493,7 +547,7 @@ export class MemoryStore {
         (async () => {
           try {
             const hits = await this.obsidian!.search(query, { limit: topK })
-            return hits.map(obsidianHitToRetrieval)
+            return hits.map((h) => obsidianHitToRetrieval(h, snippetMax))
           } catch (err) {
             log.warn('obsidian source failed, continuing without', {
               err: (err as Error).message,
@@ -604,6 +658,86 @@ export class MemoryStore {
   async appendTrace(sessionId: string, step: Omit<TraceStep, 'session_id' | 't'> & { t?: string }): Promise<void> {
     await this.episodic.appendTrace(sessionId, step)
   }
+
+  /**
+   * Walk structural crosslinks from a seed atom and synthesise a single
+   * narrative over the resulting community. Implements
+   * BLUEPRINT--COMMUNITY-SUMMARIES — pure read-side, in-memory cache,
+   * no schema impact.
+   */
+  async summarizeCommunity(req: CommunityRequest): Promise<CommunityResult> {
+    await this.atomic.loadIndex()
+    // Plumb a default semantic search backed by the atomic vector store
+    // + active embedder. Only invoked when req.mode is 'semantic' or
+    // 'hybrid' (per ADR--SEMANTIC-COMMUNITY).
+    const vectorSearch: import('./community.js').SemanticSearchFn = async (seeds, opts) => {
+      const embedder = await this.embedder()
+      const store = await this.getVectorStore('atomic')
+      const seenIds = new Set(seeds.map((s) => s.id))
+      const out = new Map<string, import('./types.js').AtomicEntry>()
+      for (const seed of seeds) {
+        const text = seed.summary_tldr ?? seed.title ?? seed.id
+        const queryVec = await embedder.embed(text)
+        const hits = await store.search(queryVec, {
+          topK: opts.topK,
+          scoreThreshold: opts.threshold,
+        })
+        for (const h of hits) {
+          // Vector docs carry an atom path in metadata; resolve back to
+          // the AtomicEntry the path belongs to (skip self + non-atom hits).
+          const path = (h.doc.metadata['path'] as string | undefined) ?? ''
+          if (!path) continue
+          const entry = this.atomic
+            .filter({})
+            .find((e) => e.path === path || e.path === path.replace(/^gks\//, ''))
+          if (!entry || seenIds.has(entry.id) || out.has(entry.id)) continue
+          out.set(entry.id, entry)
+        }
+      }
+      return [...out.values()]
+    }
+    return doSummarizeCommunity(
+      { atomic: this.atomic, cache: this._communityCache, vectorSearch },
+      req,
+    )
+  }
+
+  private readonly _communityCache: CommunityCacheLike
+
+  /**
+   * Reverse episodic lookup — find every v2 episode/turn whose typed
+   * crosslinks reference `atomId`. Implements BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
+   * Linear scan over the v2 store; pair with a cache tier for large installations.
+   */
+  async lookupByAtom(
+    atomId: string,
+    opts?: { predicates?: string[] },
+  ): Promise<import('./episodic-v2.js').LookupByAtomResult> {
+    const { scanEpisodicForAtom } = await import('./episodic-v2.js')
+    return scanEpisodicForAtom(this.episodicV2, atomId, opts)
+  }
+
+  /**
+   * Auto-detect communities in the atom crosslink graph (Louvain-lite).
+   * Implements BLUEPRINT--AUTO-COMMUNITIES — pure read-side, deterministic,
+   * no persistence. Pair with `summarizeCommunity` for per-cluster
+   * synthesis.
+   */
+  async detectCommunities(opts?: DetectCommunitiesOptions): Promise<DetectCommunitiesResult> {
+    await this.atomic.loadIndex()
+    const result = doDetectCommunities(this.atomic, opts)
+    // LLM-backed labels: applied as a separate async pass so the pure
+    // detectCommunities() function stays sync-callable for direct
+    // consumers (per ADR--COMMUNITY-LABELS).
+    if (
+      opts?.withLabels &&
+      typeof opts.withLabels === 'object' &&
+      opts.withLabels.generator
+    ) {
+      return labelCommunities(result, this.atomic, opts.withLabels.generator)
+    }
+    return result
+  }
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
@@ -704,51 +838,75 @@ function defaultSources(
   }
 }
 
-function atomicHitToRetrieval(h: AtomicHit): RetrievalHit {
+function atomicHitToRetrieval(h: AtomicHit, snippetMax?: number): RetrievalHit {
   const { note } = h
+  // Prefer the pre-computed TL;DR when available (ADR--SUMMARY-TLDR);
+  // index-only mode + falls back to title/id when absent.
+  const tldr = typeof note.summary_tldr === 'string' ? note.summary_tldr : undefined
+  const fallbackSnippet = note.title ?? note.id
+  const snippet = indexOnlySnippet(snippetMax)
+    ? fallbackSnippet
+    : tldr
+      ? snippetFrom(tldr, snippetMax ?? tldr.length)
+      : fallbackSnippet
   return {
     id: note.id,
     source: 'atomic',
     score: h.score,
     path: note.path,
     ...(note.title !== undefined ? { title: note.title } : {}),
-    snippet: note.title ?? note.id,
+    snippet,
     metadata: {
       phase: note.phase,
       type: note.type,
       status: note.status,
       matchedBy: h.matchedBy,
+      ...(tldr ? { summary_tldr: tldr } : {}),
     },
   }
 }
 
-function vectorHitToRetrieval(h: VectorHit): RetrievalHit {
+function vectorHitToRetrieval(h: VectorHit, snippetMax?: number): RetrievalHit {
   const m = h.doc.metadata
+  const title = typeof m['title'] === 'string' ? (m['title'] as string) : undefined
+  const tldr = typeof m['summary_tldr'] === 'string' ? (m['summary_tldr'] as string) : undefined
+  const snippet = indexOnlySnippet(snippetMax)
+    ? title ?? h.doc.id
+    : tldr
+      ? snippetFrom(tldr, snippetMax ?? tldr.length)
+      : snippetFrom(h.doc.text, snippetMax ?? 240)
   return {
     id: h.doc.id,
     source: m['type'] === 'episodic' ? 'episodic' : 'vector',
     score: h.score,
     ...(typeof m['path'] === 'string' ? { path: m['path'] } : {}),
-    ...(typeof m['title'] === 'string' ? { title: m['title'] as string } : {}),
-    snippet: snippetFrom(h.doc.text, 240),
+    ...(title !== undefined ? { title } : {}),
+    snippet,
     metadata: m,
   }
 }
 
-function obsidianHitToRetrieval(h: ObsidianSearchHit): RetrievalHit {
+function obsidianHitToRetrieval(h: ObsidianSearchHit, snippetMax?: number): RetrievalHit {
   return {
     id: h.path,
     source: 'obsidian',
     score: h.score,
     path: h.path,
     title: h.title,
-    snippet: h.snippet,
+    snippet: indexOnlySnippet(snippetMax)
+      ? h.title ?? h.path
+      : snippetFrom(h.snippet, snippetMax ?? h.snippet.length),
     metadata: { matchedBy: h.matchedBy },
   }
 }
 
+function indexOnlySnippet(snippetMax?: number): boolean {
+  return snippetMax === 0
+}
+
 function snippetFrom(text: string, max: number): string {
   const clean = text.replace(/\s+/g, ' ').trim()
+  if (max <= 0) return ''
   return clean.length <= max ? clean : clean.slice(0, max - 1) + '…'
 }
 
@@ -790,18 +948,81 @@ export type { HnswBackendOptions } from './vector/hnsw.js'
 export { createPgGraphBackend } from './graph/pg.js'
 export type { PgGraphBackendOptions } from './graph/pg.js'
 export { EpisodicLayer } from './episodic.js'
+export {
+  EpisodicLayerV2,
+  newEpisodicSession,
+  scanEpisodicForAtom,
+  validateEpisodicCrosslinks,
+} from './episodic-v2.js'
+export type {
+  EpisodeRef,
+  EpisodicLayerV2Options,
+  EpisodicLinkError,
+  EpisodicValidateResult,
+  LookupByAtomResult,
+  TurnRef,
+} from './episodic-v2.js'
+export { detectEpisodeBoundaries } from './episode-boundary.js'
+export type {
+  EpisodeBoundaryDetector,
+  EpisodeBoundaryOptions,
+  EpisodeBoundaryReason,
+  EpisodeBoundarySignals,
+  EpisodeSegment,
+} from './episode-boundary.js'
 export { InboundQueue } from './inbound.js'
 export { ATOMIC_ID_PATTERN, isAtomicId, assertAtomicId } from './atomic-id.js'
 export { createEmbedder, mockEmbedder } from './vector/embedder.js'
+export { createNomicEmbedder } from './vector/embedder-nomic.js'
 export type { Embedder, EmbedderOptions, EmbedderInfo } from './vector/embedder.js'
 export { createReranker, rerank } from './rerank.js'
 export type { Reranker, RerankerOptions } from './rerank.js'
-export { createAnthropicClient, createLlmExtractor } from './consolidator-llm.js'
+export { createAnthropicClient, createLlmExtractor, createOpenAICompatibleClient } from './consolidator-llm.js'
 export type {
   LlmClient,
   AnthropicClientOptions,
   LlmExtractorOptions,
+  OpenAICompatibleClientOptions,
 } from './consolidator-llm.js'
+export {
+  bodyHash,
+  createLlmTldrGenerator,
+  generateTldrStamp,
+  heuristicTldrGenerator,
+} from './tldr.js'
+export type { LlmTldrOptions, TldrGenerator, TldrStamp } from './tldr.js'
+export {
+  CommunityCache,
+  DEFAULT_COMMUNITY_EDGES,
+  buildCommunityPrompt,
+  summarizeCommunity,
+  walkCommunity,
+} from './community.js'
+export type {
+  CommunityAtomic,
+  CommunityCacheLike,
+  CommunityEdgeKey,
+  CommunityRequest,
+  CommunityResult,
+  SemanticSearchFn,
+  SummarizeCommunityDeps,
+} from './community.js'
+export { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
+export type { DiskCommunityCacheOptions } from './community-cache-disk.js'
+export {
+  buildAtomGraph,
+  buildLabelPrompt,
+  detectCommunities,
+  heuristicLabel,
+  labelCommunities,
+  louvainLite,
+} from './community-detect.js'
+export type {
+  CommunityAtomicWithFilter,
+  DetectCommunitiesOptions,
+  DetectCommunitiesResult,
+  DetectedCommunity,
+} from './community-detect.js'
 export {
   createMockObsidianAdapter,
   createRestObsidianAdapter,
@@ -831,6 +1052,20 @@ export type {
   SetupTelemetryOptions,
   SetupResult as TelemetrySetupResult,
 } from '../lib/telemetry-setup.js'
+export { retain, recall, reflect } from './api.js'
+export type { ReflectOptions, ReflectResult } from './api.js'
+export {
+  CORE_EPISODIC_PREDICATES,
+  EPISODIC_V2_SCHEMA_VERSION,
+} from './types.js'
+export type {
+  CoreEpisodicPredicate,
+  Episode,
+  EpisodicCrosslinks,
+  EpisodicIndexRow,
+  EpisodicSession,
+  Turn,
+} from './types.js'
 
 export { AuditLog } from './audit.js'
 export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'

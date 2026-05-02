@@ -63,6 +63,45 @@ If you need to land an urgent fix without writing the full chain of atoms immedi
 Failure to close the hotfix within 48 hours blocks any further commit on the
 affected files (`gks hotfix check`) and the CI gate.
 
+## Keeping `summary_tldr` fields fresh
+
+Atoms can carry an optional `summary_tldr` field (see [`ADR--SUMMARY-TLDR`](./gks/adr/ADR--SUMMARY-TLDR.md)). When the body of an atom changes, its TL;DR drifts — `gks validate --tldr-staleness` flags the mismatch. To regenerate on demand:
+
+```bash
+# Single atom
+npx tsx bin/gks.ts tldr regenerate FEAT--YOUR-FEATURE
+
+# Every atom whose body has drifted from its stored TL;DR hash
+npx tsx bin/gks.ts tldr regenerate --all-stale
+
+# Preview what would change without writing
+npx tsx bin/gks.ts tldr regenerate --all-stale --dry-run
+```
+
+Generator selection is automatic and follows the same env precedence as `gks inbound promote --generate-tldr`:
+
+| env                    | generator                                    |
+| ---------------------- | -------------------------------------------- |
+| `GKS_LLM_BASE_URL`     | OpenAI-compatible local SLM (Ollama, etc.)   |
+| `ANTHROPIC_API_KEY`    | Anthropic Messages API                        |
+| (none)                 | Heuristic — deterministic, zero LLM cost     |
+
+### Pre-commit hook integration (optional)
+
+To keep TL;DRs fresh automatically, install the bundled hook:
+
+```bash
+cp examples/drift-detection/pre-commit-tldr-regen.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+The hook detects staged atom files (`gks/<type>/<id>.md`), runs
+`gks tldr regenerate` on each, rebuilds `atomic_index.jsonl`, and
+re-stages the rewritten frontmatter so it lands in the commit.
+Override with `git commit --no-verify` to skip on a one-off basis.
+
+The hook is intentionally **not** installed automatically — keeping TL;DRs perfectly fresh is a developer preference, not a hard correctness gate (the CI gate is `validate --tldr-staleness`, which can run as a soft warning rather than a blocker).
+
 ## Releases (Changesets)
 
 GKS uses [Changesets](https://github.com/changesets/changesets) per

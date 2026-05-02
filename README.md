@@ -5,7 +5,7 @@
 > three verbs (Retain, Recall, Reflect), with multi-tenancy, bi-temporal
 > versioning, observability, and pluggable backends.
 
-[![tests](https://img.shields.io/badge/tests-344%20passing-brightgreen)](#tests)
+[![tests](https://img.shields.io/badge/tests-462%20passing-brightgreen)](#tests)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-blue)](#requirements)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
@@ -20,7 +20,7 @@ GKS is a unified memory interface for agents — four cooperating layers
 versioning, observability, and pluggable backends.
 
 ```ts
-import { MemoryStore, retain, recall } from '@evaai/gks'
+import { MemoryStore, retain, recall } from '@freshair129/gks'
 
 const store = new MemoryStore({ root: '.gks-data' })
 await store.init()
@@ -63,14 +63,14 @@ mock embedder; `setEmbedder()` to switch in a real one.
 ## Install
 
 ```sh
-npm install @evaai/gks
+npm install @freshair129/gks
 ```
 
 ## Quickstart
 
 ```ts
-import { MemoryStore, retain, recall } from '@evaai/gks'
-import { createEmbedder } from '@evaai/gks/vector/embedder'
+import { MemoryStore, retain, recall } from '@freshair129/gks'
+import { createEmbedder } from '@freshair129/gks/vector/embedder'
 
 const embedder = await createEmbedder({ forceProvider: 'ollama' })
 const store = new MemoryStore({
@@ -192,7 +192,7 @@ Mix and match:
 import {
   MemoryStore,
   createPgvectorBackend,
-} from '@evaai/gks'
+} from '@freshair129/gks'
 import pg from 'pg'
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
@@ -222,7 +222,7 @@ embedder model versions. See
 ## Observability
 
 ```ts
-import { setupTelemetry } from '@evaai/gks'
+import { setupTelemetry } from '@freshair129/gks'
 
 const otel = await setupTelemetry({ serviceName: 'my-agent' })
 // ...your agent runs...

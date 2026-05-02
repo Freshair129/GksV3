@@ -18,10 +18,13 @@ import { join, resolve } from 'node:path'
 import { AtomicLayer } from '../../src/memory/gks.js'
 
 const SCRIPT = resolve(__dirname, '..', '..', 'scripts', 'msp', 're-indexer.ts')
+const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 
 function run(args: string[]): { stdout: string; stderr: string; code: number } {
-  const r = spawnSync('npx', ['tsx', SCRIPT, ...args], {
+  const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const r = spawnSync(cmd, ['tsx', SCRIPT, ...args], {
     encoding: 'utf8',
+    shell: true,
     env: { ...process.env, GKS_LOG_LEVEL: 'error' },
   })
   return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', code: r.status ?? 0 }
@@ -83,7 +86,7 @@ describe('re-indexer (npm run msp:index)', () => {
     const rows = await readIndex(root)
     // Sorted by id alphabetically (deterministic output for diff-friendly).
     expect(rows.map((r) => r['id'])).toEqual(['ADR--FOO', 'CONCEPT--EVA'])
-    expect(rows[0]!['path']).toBe('adr/foo.md')
+    expect((rows[0]!['path'] as string).replace(/\\/g, '/')).toBe('adr/foo.md')
     expect(rows[1]!['title']).toBe('EVA')
     expect(rows[1]!['tags']).toEqual(['a', 'b'])
   }, 30_000)

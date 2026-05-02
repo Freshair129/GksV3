@@ -21,6 +21,7 @@ obvious from the code alone. One file per decision; status is one of
 | [011](./011-test-policy.md) | Test policy: when written, when run, what's required | accepted | 2026-04-26 |
 | [014](./014-doc-to-code-enforcement.md) | Doc-to-code enforcement model (master-spec §6 → GKS primitives) | accepted | 2026-04-28 |
 | [015](./015-task-tracking-at-orchestrator.md) | Task tracking belongs to the orchestrator, not GKS (supersedes ADR-014 item 1) | accepted | 2026-04-28 |
+| [016](./016-postpone-kuzu-backend.md) | Postpone embedded graph backend (Kuzu) | accepted | 2026-04-28 |
 
 ## Promotion to gks/
 

@@ -392,6 +392,243 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
     },
   )
 
+  // ─── tldr / community / episodic (post-PR-25 features) ────────────────
+
+  // gks_tldr_regenerate — regenerate atom summary_tldr in place.
+  server.registerTool(
+    'gks_tldr_regenerate',
+    {
+      description:
+        'Regenerate summary_tldr / body_hash / generated_at frontmatter for one or more atoms. Pass `allStale: true` to walk every atom and re-stamp ones whose body has drifted from its stored hash. Heuristic generator by default (zero LLM cost).',
+      inputSchema: z
+        .object({
+          ids: z.array(z.string()).optional().describe('Atom ids to regenerate'),
+          allStale: z.boolean().optional().describe('Regenerate every atom whose body hash differs from its stored summary_tldr_body_hash'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const { regenerateTldrInPlace, heuristicTldrGenerator, bodyHash } = await import(
+        '../memory/tldr.js'
+      )
+      const generator = heuristicTldrGenerator()
+      await opts.store.atomic.loadIndex()
+
+      let targets: string[] = args.ids ?? []
+      if (args.allStale) {
+        const stale: string[] = []
+        for (const entry of opts.store.atomic.filter({})) {
+          if (!entry.summary_tldr || !entry.summary_tldr_body_hash) continue
+          const note = await opts.store.atomic.lookup(entry.id)
+          if (!note) continue
+          const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+          if (bodyHash(body) !== entry.summary_tldr_body_hash) stale.push(entry.id)
+        }
+        targets = [...new Set([...targets, ...stale])]
+      }
+
+      const regenerated: Array<{ id: string; path: string }> = []
+      const errors: Array<{ id: string; reason: string }> = []
+      for (const id of targets) {
+        try {
+          const filePath = await regenerateTldrInPlace(opts.store, id, generator)
+          regenerated.push({ id, path: filePath })
+        } catch (err) {
+          errors.push({ id, reason: (err as Error).message })
+        }
+      }
+      return jsonReply({ ok: errors.length === 0, regenerated, errors })
+    },
+  )
+
+  // gks_community_summarize — synthesise a narrative across a community.
+  server.registerTool(
+    'gks_community_summarize',
+    {
+      description:
+        'Walk crosslinks (and optionally vector neighbours) from one or more seed atoms and synthesise a single narrative. Use mode="structural" (default) for crosslink-only walks, "semantic" for vector-similarity-only, "hybrid" for both. Returns the synthesised summary plus the audited member list.',
+      inputSchema: z
+        .object({
+          seed: z.union([z.string(), z.array(z.string())]).describe('Seed atom id(s)'),
+          hops: z.number().int().min(0).max(3).optional().describe('Crosslink walk depth (0..3)'),
+          edges: z.array(z.string()).optional().describe('Crosslink predicates to follow'),
+          includeBodies: z.boolean().optional().describe('Use atom bodies instead of summary_tldr'),
+          maxMembers: z.number().int().positive().optional(),
+          mode: z.enum(['structural', 'semantic', 'hybrid']).optional(),
+          semanticThreshold: z.number().min(0).max(1).optional(),
+          semanticTopK: z.number().int().positive().optional(),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const result = await opts.store.summarizeCommunity({
+        seed: args.seed,
+        ...(args.hops !== undefined ? { hops: args.hops } : {}),
+        ...(args.edges ? { edges: args.edges } : {}),
+        ...(args.includeBodies !== undefined ? { includeBodies: args.includeBodies } : {}),
+        ...(args.maxMembers !== undefined ? { maxMembers: args.maxMembers } : {}),
+        ...(args.mode ? { mode: args.mode } : {}),
+        ...(args.semanticThreshold !== undefined ? { semanticThreshold: args.semanticThreshold } : {}),
+        ...(args.semanticTopK !== undefined ? { semanticTopK: args.semanticTopK } : {}),
+      })
+      return jsonReply(result)
+    },
+  )
+
+  // gks_community_detect — auto-detect communities (Louvain-lite).
+  server.registerTool(
+    'gks_community_detect',
+    {
+      description:
+        'Detect communities in the atom crosslink graph using deterministic Louvain-lite clustering. Returns members[], density, and modularity per cluster, plus orphan atoms. Pair with gks_community_summarize for whole-tree overview.',
+      inputSchema: z
+        .object({
+          edgeKeys: z.array(z.string()).optional().describe('Restrict to specific crosslink predicates'),
+          minSize: z.number().int().positive().optional().describe('Clusters below this size go to orphans (default 2)'),
+          withLabels: z
+            .boolean()
+            .optional()
+            .describe('Add a heuristic 1-4 word topic label to each cluster (boolean form). For LLM labels, call the Node API with { generator } directly.'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const result = await opts.store.detectCommunities({
+        ...(args.edgeKeys ? { edgeKeys: args.edgeKeys } : {}),
+        ...(args.minSize !== undefined ? { minSize: args.minSize } : {}),
+        ...(args.withLabels !== undefined ? { withLabels: args.withLabels } : {}),
+      })
+      return jsonReply(result)
+    },
+  )
+
+  // gks_episodic_show — pretty-print a v2 episodic session.
+  server.registerTool(
+    'gks_episodic_show',
+    {
+      description:
+        'Read a v2 episodic session (BLUEPRINT--EPISODIC-V2) — returns the session header, episodes (with denormalised counts), and (with full=true) every turn.',
+      inputSchema: z
+        .object({
+          sessionId: z.string(),
+          full: z.boolean().optional().describe('Include all turns in the response'),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const session = await opts.store.episodicV2.readSession(args.sessionId)
+      if (!session) return jsonReply({ ok: false, reason: 'no v2 session at that id' })
+      const episodes = await opts.store.episodicV2.listEpisodes(args.sessionId)
+      const turns = args.full ? await opts.store.episodicV2.listTurns(args.sessionId) : []
+      return jsonReply({ ok: true, session, episodes, ...(args.full ? { turns } : {}) })
+    },
+  )
+
+  // gks_episodic_migrate — re-emit a v1 markdown session as v2.
+  server.registerTool(
+    'gks_episodic_migrate',
+    {
+      description:
+        'Re-emit a v1 markdown session into the v2 three-document layout. Conservative mapping (one Episode + one Turn per parsed trace step). Refuses to clobber an existing v2 dir unless force=true.',
+      inputSchema: z
+        .object({
+          sessionId: z.string(),
+          force: z.boolean().optional(),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const existingV2 = await opts.store.episodicV2.readSession(args.sessionId)
+      if (existingV2 && !args.force) {
+        return jsonReply({
+          ok: false,
+          reason: 'v2 session already exists; pass force=true to overwrite',
+        })
+      }
+      const v1Items = await opts.store.episodic.listEpisodic()
+      const v1 = v1Items.find((x) => x.session_id === args.sessionId || x.id === args.sessionId)
+      if (!v1) return jsonReply({ ok: false, reason: 'no v1 markdown for that session_id' })
+
+      const trace = await opts.store.episodic.readTrace(args.sessionId)
+      const { newEpisodicSession } = await import('../memory/episodic-v2.js')
+      const sess = newEpisodicSession({
+        session_id: args.sessionId,
+        system: 'gks-v3-migrated',
+        started_at:
+          typeof v1.frontmatter['started_at'] === 'string'
+            ? (v1.frontmatter['started_at'] as string)
+            : new Date().toISOString(),
+      })
+      await opts.store.episodicV2.writeSession(sess)
+
+      const episodeId = `E-${args.sessionId}-001`
+      await opts.store.episodicV2.appendEpisode(args.sessionId, {
+        episode_id: episodeId,
+        episode_type: 'interaction',
+        provenance: {
+          written_by: 'gks-mcp-episodic-migrate',
+          authoritative_fields: ['from_v1_markdown'],
+        },
+      })
+      for (const step of trace) {
+        await opts.store.episodicV2.appendTurn(args.sessionId, {
+          episode_id: episodeId,
+          speaker: step.kind,
+          t: step.t,
+          raw_text: step.content,
+        })
+      }
+      await opts.store.episodicV2.finaliseSession(args.sessionId, {
+        ended_at:
+          typeof v1.frontmatter['ended_at'] === 'string'
+            ? (v1.frontmatter['ended_at'] as string)
+            : new Date().toISOString(),
+        summary: v1.body.trim().slice(0, 1000),
+      })
+      return jsonReply({
+        ok: true,
+        session_id: args.sessionId,
+        episode_id: episodeId,
+        turn_count: trace.length,
+      })
+    },
+  )
+
+  // gks_lookup_by_atom — reverse-lookup over v2 episodic store.
+  server.registerTool(
+    'gks_lookup_by_atom',
+    {
+      description:
+        'Reverse episodic lookup: returns every v2 episode + turn whose typed crosslinks reference the given atom id, sorted chronologically. Optional `predicates[]` filter restricts to specific crosslink keys (e.g. ["implements", "discusses"]).',
+      inputSchema: z
+        .object({
+          atomId: z.string(),
+          predicates: z.array(z.string()).optional(),
+        })
+        .strict(),
+    },
+    async (args) => {
+      const result = await opts.store.lookupByAtom(
+        args.atomId,
+        args.predicates ? { predicates: args.predicates } : {},
+      )
+      return jsonReply(result)
+    },
+  )
+
+  // gks_episodic_list — list every v2 session from _index.jsonl.
+  server.registerTool(
+    'gks_episodic_list',
+    {
+      description: 'List all v2 episodic sessions from _index.jsonl (one row per session).',
+      inputSchema: z.object({}).strict(),
+    },
+    async () => {
+      const sessions = await opts.store.episodicV2.listSessions()
+      return jsonReply({ ok: true, sessions })
+    },
+  )
+
   // gks_poc_open (ADR--ADD-POC-PREFIX)
   server.registerTool(
     'gks_poc_open',
@@ -608,6 +845,7 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
       return jsonReply(issue)
     },
   )
+
 
   // gks_recall_cross_namespace (admin only — gated by exposeCrossNamespace flag)
   if (opts.exposeCrossNamespace) {

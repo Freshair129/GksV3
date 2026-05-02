@@ -11,7 +11,7 @@ bi-temporal versioning, and pluggable backends.
 
 ```sh
 npm run typecheck          # tsc --noEmit (run before every commit)
-npm test                   # vitest run — 344 tests
+npm test                   # vitest run — 462 tests
 npm run build              # tsc -p tsconfig.build.json
 npm run quickstart         # end-to-end demo
 
@@ -189,8 +189,14 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`src/poc/types.ts`](./src/poc/types.ts) | `Poc` / `PocStatus`, `validatePoc`, `isOverdue`, `isClosed` |
 | [`src/issue/store.ts`](./src/issue/store.ts) | `IssueStore` — ISSUE-- lifecycle |
 | [`src/issue/types.ts`](./src/issue/types.ts) | `Issue` interface and status types |
+| [`src/memory/community.ts`](./src/memory/community.ts) | `summarizeCommunity` (structural/semantic/hybrid) + LRU cache |
+| [`src/memory/community-cache-disk.ts`](./src/memory/community-cache-disk.ts) | `DiskCommunityCache` + `TieredCommunityCache` |
+| [`src/memory/community-detect.ts`](./src/memory/community-detect.ts) | `detectCommunities` (Louvain-lite) + `labelCommunities` |
+| [`src/memory/episodic-v2.ts`](./src/memory/episodic-v2.ts) | `EpisodicLayerV2` (3-doc split) + `scanEpisodicForAtom` |
+| [`src/memory/episode-boundary.ts`](./src/memory/episode-boundary.ts) | `detectEpisodeBoundaries` (time-gap / semantic / explicit) |
+| [`src/memory/tldr.ts`](./src/memory/tldr.ts) | `TldrGenerator` + `regenerateTldrInPlace` |
 | [`src/scaffold/new-feature.ts`](./src/scaffold/new-feature.ts) | `scaffoldNewFeature()` — drops 4 inbound candidates |
-| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 23 tools exposed over stdio |
+| [`src/mcp-server/index.ts`](./src/mcp-server/index.ts) | MCP server — 30 tools exposed over stdio |
 | [`src/lib/retry.ts`](./src/lib/retry.ts) | Exponential-backoff retry |
 | [`src/lib/circuit-breaker.ts`](./src/lib/circuit-breaker.ts) | Circuit breaker |
 | [`src/lib/telemetry.ts`](./src/lib/telemetry.ts) | OTel API helpers |
@@ -245,7 +251,7 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 
 ---
 
-## MCP tools (23 total)
+## MCP tools (30 total)
 
 | Tool | Purpose |
 |------|---------|
@@ -271,4 +277,11 @@ Try: `npx tsx bin/gks.ts lookup ADR--FLAT-ATOM-LAYOUT --root=.`
 | `gks_issue_comment` | Append to `## Discussion` (chronological) |
 | `gks_issue_status` | Transition status (open/triaged/in_progress/blocked/closed/wontfix) |
 | `gks_issue_close` | Close + optional `resolved_by` crosslink |
+| `gks_tldr_regenerate` | Regenerate `summary_tldr` (single id or `--all-stale`) |
+| `gks_community_summarize` | Synthesise narrative across an atom community (structural/semantic/hybrid) |
+| `gks_community_detect` | Auto-detect clusters (Louvain-lite) + optional heuristic labels |
+| `gks_episodic_show` | Read v2 episodic session (header + episodes + optional turns) |
+| `gks_episodic_migrate` | Re-emit v1 markdown into v2 3-doc layout |
+| `gks_episodic_list` | List all v2 sessions from `_index.jsonl` |
+| `gks_lookup_by_atom` | Reverse lookup: episodes/turns citing an atom |
 | `gks_recall_cross_namespace` | Admin: cross-tenant recall (gated) |

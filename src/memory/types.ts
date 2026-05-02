@@ -1,7 +1,7 @@
 /**
  * Shared types for GKS v3 memory fabric.
  *
- * Reference: BLUEPRINT--memory (Layer 1-4), FRAME--TRI-BRAIN-ARCHITECTURE §3.3.
+ * Reference: BLUEPRINT--memory (Layer 1-4).
  */
 
 export type Phase = 0 | 1 | 2 | 3 | 4 | 5
@@ -74,6 +74,24 @@ export interface AtomicEntry {
    * Treated as file-level citations by reverse lookup (ADR-010).
    */
   geography?: string[]
+  /**
+   * Pre-computed ≤200-token summary of the atom body, generated once at
+   * promote/retain time. When present, recall() returns this as the hit
+   * snippet instead of a body excerpt — same token budget, far better
+   * signal. See ADR--SUMMARY-TLDR.
+   *
+   * Optional. Atoms without a TLDR keep working — recall falls back to
+   * the prior body-excerpt / title-only behaviour.
+   */
+  summary_tldr?: string
+  /**
+   * SHA-256 (first 16 hex chars) of the body that was summarised. Used
+   * by `gks validate --tldr-staleness` to detect bodies that have been
+   * edited since the TLDR was generated.
+   */
+  summary_tldr_body_hash?: string
+  /** ISO-8601 timestamp the TLDR was generated. */
+  summary_tldr_generated_at?: string
 }
 
 /** Full atomic note (frontmatter + body). */
@@ -121,6 +139,14 @@ export interface VectorMetadata {
   /** If this doc supersedes another, the ID of the doc it invalidated. */
   superseded_by?: string
   supersedes?: string
+  /**
+   * Pre-computed ≤200-token summary of the doc body, generated at retain
+   * time when `generateTldr: true`. When present, recall returns this as
+   * the hit snippet (capped by `snippetMaxChars`). See ADR--SUMMARY-TLDR.
+   */
+  summary_tldr?: string
+  summary_tldr_body_hash?: string
+  summary_tldr_generated_at?: string
   [k: string]: unknown
 }
 
@@ -174,6 +200,134 @@ export interface EpisodicMemory {
   emotion_summary?: string
   outcomes?: string[]
   summary: string
+}
+
+// ─── Episodic v2 (BLUEPRINT--EPISODIC-V2) ────────────────────────────────
+
+/**
+ * Schema-version marker on v2 episodic records. v1 files lack this
+ * field and are detected by absence (back-compat).
+ */
+export const EPISODIC_V2_SCHEMA_VERSION = '2.0.0'
+
+/**
+ * Predicate keys validated by `validate-links` on episode + turn
+ * crosslinks. Matches the convention atom crosslinks already use —
+ * orchestrator-defined predicates (e.g. `inspired_by`) pass through
+ * untouched with a warning.
+ */
+export const CORE_EPISODIC_PREDICATES = [
+  'discusses',
+  'implements',
+  'contradicts',
+  'supports',
+  'derived_from',
+  'references',
+] as const
+export type CoreEpisodicPredicate = (typeof CORE_EPISODIC_PREDICATES)[number]
+
+/**
+ * Predicate-keyed crosslinks. Same shape as atom crosslinks: keys
+ * are predicate names (open set), values are atom-id arrays. GKS
+ * stores them; orchestrators interpret the semantics.
+ */
+export type EpisodicCrosslinks = Record<string, string[]>
+
+/**
+ * Top-level episodic session record. Lives at
+ * `<episodicDir>/<session_id>/session.json`. Immutable after
+ * `finaliseSession` (i.e. `ended_at` set).
+ */
+export interface EpisodicSession {
+  schema_version: string
+  /** Free-form orchestrator id (e.g. "gks-v3", "EVA", "msp"). */
+  system: string
+  user_id?: string
+  instance_id?: string
+  session_id: string
+  started_at: string
+  ended_at?: string
+  namespace?: Namespace
+  summary?: string
+  outcomes?: string[]
+  tags?: string[]
+}
+
+/**
+ * One context-coherent slice of a session. Lives as one line in
+ * `<episodicDir>/<session_id>/episodes.jsonl`. Denormalised
+ * `turn_count` / `first_turn_id` / `last_turn_id` are maintained
+ * by `appendTurn` to avoid a turns.jsonl scan.
+ */
+export interface Episode {
+  episode_id: string
+  episode_type: 'interaction' | 'observation' | 'system_event'
+  episode_tag?: string[]
+  situation_context?: {
+    context_id?: string
+    interaction_mode?: 'casual' | 'discussion' | 'deep_discussion' | 'crisis'
+    stakes_level?: 'low' | 'medium' | 'high'
+    time_pressure?: 'low' | 'medium' | 'high'
+  }
+  crosslinks?: EpisodicCrosslinks
+  /** Number of turns whose `episode_id` matches this episode. */
+  turn_count: number
+  first_turn_id?: string
+  last_turn_id?: string
+  started_at?: string
+  ended_at?: string
+  provenance?: {
+    /** Free-form ('consolidator', 'MSP', 'agent:foo'). */
+    written_by?: string
+    llm_contribution?: string[]
+    authoritative_fields?: string[]
+  }
+}
+
+/**
+ * One observed message / action within an episode. Lives as one
+ * line in `<episodicDir>/<session_id>/turns.jsonl`. The
+ * `episode_id` field is the FK to its parent Episode (single
+ * source of truth for the episode↔turn relationship).
+ */
+export interface Turn {
+  turn_id: string
+  episode_id: string
+  /** ISO-8601 timestamp. */
+  t: string
+  /** Free-form ('user', 'agent', 'tool', 'system', ...). */
+  speaker: string
+  raw_text?: string
+  text_excerpt?: string
+  summary?: string
+  epistemic_mode?: 'reflect' | 'inquire' | 'explain' | 'explore'
+  semantic_frames?: string[]
+  salience_anchor?: {
+    phrase: string
+    /** 0..1 — how much this phrase carried the conversational load. */
+    resonance_impact: number
+    authority?: string
+  }
+  action?: {
+    action_type?: string
+    artifacts?: string[]
+    tools_used?: string[]
+  }
+  crosslinks?: EpisodicCrosslinks
+}
+
+/**
+ * Single line in `<episodicDir>/_index.jsonl` — one row per session
+ * for fast enumeration without stat-walking session directories.
+ */
+export interface EpisodicIndexRow {
+  session_id: string
+  schema_version?: string
+  started_at: string
+  ended_at?: string
+  episode_count: number
+  turn_count: number
+  summary?: string
 }
 
 /**
@@ -276,6 +430,24 @@ export interface RetrievalOptions {
   crossNamespace?: boolean
   boostStable?: boolean
   sources?: Array<'atomic' | 'vector' | 'episodic' | 'obsidian'>
+  /**
+   * Maximum characters retained in each hit's `snippet` field. Lets callers
+   * trade snippet richness for token budget when the recall result is fed
+   * straight into an LLM context window.
+   *
+   *   - default (`undefined`)  → 240 chars (current behaviour)
+   *   - `0`                    → "index-only" mode: snippet becomes the title
+   *                              (or id) only — typically ~50 chars per hit,
+   *                              ~80 % token reduction vs default. Use when
+   *                              the agent will follow up with an explicit
+   *                              `lookup(id)` for the chosen hits.
+   *   - any positive integer   → snippet truncated to that length (with a `…`
+   *                              suffix if cut)
+   *
+   * Atomic and Obsidian hits whose source snippet is already shorter than
+   * the cap are returned unchanged.
+   */
+  snippetMaxChars?: number
 }
 
 export interface RetrievalResult {
@@ -337,6 +509,18 @@ export interface RetainInput {
    * orchestrator's job (see ADR-009).
    */
   linkedSymbols?: LinkedSymbol[]
+  /**
+   * If true, generate a `summary_tldr` for the new vector doc and stamp
+   * it (plus body hash + timestamp) onto the doc's metadata. When true
+   * and `tldrGenerator` is omitted, the heuristic generator is used so
+   * the call still works offline. See ADR--SUMMARY-TLDR.
+   */
+  generateTldr?: boolean
+  /**
+   * Optional TldrGenerator used when `generateTldr` is true. Defaults to
+   * the heuristic generator (zero LLM cost) when not provided.
+   */
+  tldrGenerator?: import('./tldr.js').TldrGenerator
 }
 
 export interface RetainResult {

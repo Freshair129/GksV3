@@ -116,4 +116,60 @@ describe('MemoryStore', () => {
     const files = await readdir(dir)
     expect(files.some((f) => f.includes(sessionId))).toBe(true)
   })
+
+  it('retrieve() snippetMaxChars=0 returns title-only snippets (index-only mode)', async () => {
+    const { store, root } = await withStore()
+    cleanup.push(root)
+
+    const longBody =
+      'This is a deliberately long body that, in the default snippet mode, ' +
+      'gets truncated at 240 characters with a trailing ellipsis. We use ' +
+      'this length specifically so we can verify that index-only mode returns ' +
+      'something much shorter — the title or id — and never any of this body ' +
+      'content. Lorem ipsum dolor sit amet, consectetur adipiscing elit.'
+    await retain(store, {
+      content: longBody,
+      metadata: { path: 'long-fact.md', title: 'Long Fact' },
+    })
+
+    const fullRes = await recall(store, 'deliberately long body', {
+      topK: 3,
+      scoreThreshold: -1,
+    })
+    const fullHit = fullRes.hits.find((h) => h.path === 'long-fact.md')
+    expect(fullHit).toBeDefined()
+    expect(fullHit!.snippet.length).toBeGreaterThan(50)
+    expect(fullHit!.snippet).toContain('deliberately long')
+
+    const idxRes = await recall(store, 'deliberately long body', {
+      topK: 3,
+      scoreThreshold: -1,
+      snippetMaxChars: 0,
+    })
+    const idxHit = idxRes.hits.find((h) => h.path === 'long-fact.md')
+    expect(idxHit).toBeDefined()
+    expect(idxHit!.snippet).toBe('Long Fact')
+    expect(idxHit!.snippet).not.toContain('deliberately')
+  })
+
+  it('retrieve() snippetMaxChars caps body length without losing title metadata', async () => {
+    const { store, root } = await withStore()
+    cleanup.push(root)
+
+    await retain(store, {
+      content:
+        'Short fact about the Cortex module which handles reasoning, planning, and metacognition in the Tri-Brain.',
+      metadata: { path: 'short-fact.md', title: 'Short Cortex Fact' },
+    })
+
+    const res = await recall(store, 'cortex module reasoning', {
+      topK: 3,
+      scoreThreshold: -1,
+      snippetMaxChars: 40,
+    })
+    const hit = res.hits.find((h) => h.path === 'short-fact.md')
+    expect(hit).toBeDefined()
+    expect(hit!.snippet.length).toBeLessThanOrEqual(40)
+    expect(hit!.title).toBe('Short Cortex Fact')
+  })
 })

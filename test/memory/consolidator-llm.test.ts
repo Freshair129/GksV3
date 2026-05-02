@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest'
-import { createLlmExtractor, type LlmClient } from '../../src/memory/consolidator-llm.js'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import {
+  createLlmExtractor,
+  createOpenAICompatibleClient,
+  type LlmClient,
+} from '../../src/memory/consolidator-llm.js'
 import { Consolidator } from '../../src/memory/consolidator.js'
 import type { ConsolidationInput, SummaryExtractor } from '../../src/memory/consolidator.js'
 import type { TraceStep } from '../../src/memory/types.js'
+import { CostTracker } from '../../src/lib/cost-tracker.js'
 
 function mockClient(response: string): LlmClient {
   return {
@@ -164,5 +169,184 @@ describe('createLlmExtractor', () => {
     // Neither should survive the 0.95 gate because the heuristic proposal
     // scoring has no mentions of these IDs in the (short) trace.
     expect(out.proposals).toHaveLength(0)
+  })
+})
+
+describe('createOpenAICompatibleClient', () => {
+  let originalFetch: typeof globalThis.fetch
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  function okResponse(content: string, usage?: { prompt: number; completion: number }) {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          choices: [{ message: { content } }],
+          ...(usage
+            ? {
+                usage: {
+                  prompt_tokens: usage.prompt,
+                  completion_tokens: usage.completion,
+                  total_tokens: usage.prompt + usage.completion,
+                },
+              }
+            : {}),
+        }
+      },
+      async text() {
+        return ''
+      },
+    }
+  }
+
+  it('hits the chat/completions endpoint with system+user messages', async () => {
+    fetchMock.mockResolvedValue(okResponse('{"summary":"ok","tags":[],"outcomes":[],"emotionSummary":"","linkedAtoms":[],"proposals":[]}'))
+    const client = createOpenAICompatibleClient({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'qwen2.5:7b-instruct',
+    })
+    expect(client.name).toBe('ollama:qwen2.5:7b-instruct')
+
+    const out = await client.generate({ system: 'sys', user: 'usr', maxTokens: 512 })
+    expect(out).toContain('ok')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://localhost:11434/v1/chat/completions')
+    const body = JSON.parse(init.body as string) as {
+      model: string
+      messages: Array<{ role: string; content: string }>
+      max_tokens: number
+      response_format?: { type: string }
+    }
+    expect(body.model).toBe('qwen2.5:7b-instruct')
+    expect(body.max_tokens).toBe(512)
+    expect(body.messages).toHaveLength(2)
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'sys' })
+    expect(body.messages[1]).toEqual({ role: 'user', content: 'usr' })
+    expect(body.response_format).toEqual({ type: 'json_object' })
+  })
+
+  it('omits response_format when jsonMode is false', async () => {
+    fetchMock.mockResolvedValue(okResponse('{}'))
+    const client = createOpenAICompatibleClient({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'm',
+      jsonMode: false,
+    })
+    await client.generate({ system: 's', user: 'u' })
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string) as {
+      response_format?: unknown
+    }
+    expect(body.response_format).toBeUndefined()
+  })
+
+  it('skips Authorization header when no apiKey is set (Ollama default)', async () => {
+    fetchMock.mockResolvedValue(okResponse('{}'))
+    const client = createOpenAICompatibleClient({ baseUrl: 'http://localhost:11434/v1' })
+    await client.generate({ system: 's', user: 'u' })
+    const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>
+    expect(headers['authorization']).toBeUndefined()
+  })
+
+  it('sends Authorization header when apiKey is provided', async () => {
+    fetchMock.mockResolvedValue(okResponse('{}'))
+    const client = createOpenAICompatibleClient({
+      baseUrl: 'https://api.together.xyz/v1',
+      apiKey: 'sk-test',
+      model: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+    })
+    expect(client.name).toBe('together:Qwen/Qwen2.5-7B-Instruct-Turbo')
+    await client.generate({ system: 's', user: 'u' })
+    const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>
+    expect(headers['authorization']).toBe('Bearer sk-test')
+  })
+
+  it('records token usage to CostTracker when usage is reported', async () => {
+    fetchMock.mockResolvedValue(okResponse('{}', { prompt: 1500, completion: 600 }))
+    const tracker = new CostTracker({ emitMetrics: false })
+    const client = createOpenAICompatibleClient({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'qwen2.5:7b-instruct',
+      costTracker: tracker,
+    })
+    await client.generate({ system: 's', user: 'u' })
+    const summary = tracker.summary()
+    expect(summary.total.input_tokens).toBe(1500)
+    expect(summary.total.output_tokens).toBe(600)
+    expect(summary.total.calls).toBe(1)
+    // Local SLM → 0 USD per the pricing table.
+    expect(summary.total.usd).toBe(0)
+  })
+
+  it('throws on non-2xx with redacted body', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      async text() {
+        return 'model loading'
+      },
+    })
+    const client = createOpenAICompatibleClient({ baseUrl: 'http://localhost:11434/v1' })
+    await expect(client.generate({ system: 's', user: 'u' })).rejects.toThrow(/ollama 503/)
+  })
+
+  it('infers provider label from common base URLs', () => {
+    const cases: Array<[string, string]> = [
+      ['http://localhost:11434/v1', 'ollama'],
+      ['http://localhost:1234/v1', 'lmstudio'],
+      ['http://localhost:8080/v1', 'llamacpp'],
+      ['http://localhost:8000/v1', 'vllm'],
+      ['https://api.openai.com/v1', 'openai'],
+      ['https://api.together.xyz/v1', 'together'],
+      ['https://api.groq.com/openai/v1', 'groq'],
+      ['https://example.com/v1', 'openai-compatible'],
+    ]
+    for (const [url, expected] of cases) {
+      const c = createOpenAICompatibleClient({ baseUrl: url, model: 'm' })
+      expect(c.name, `for ${url}`).toBe(`${expected}:m`)
+    }
+  })
+
+  it('plugs into createLlmExtractor end-to-end', async () => {
+    const payload = JSON.stringify({
+      summary: 'Discussed local SLM consolidation.',
+      tags: ['local', 'slm'],
+      outcomes: ['Verified Ollama path'],
+      emotionSummary: 'satisfied',
+      linkedAtoms: [],
+      proposals: [
+        {
+          proposed_id: 'INSIGHT--LOCAL-SLM-CONSOLIDATION-WORKS',
+          phase: 1,
+          type: 'insight',
+          title: 'Local SLM consolidation works',
+          body: 'Qwen2.5-7B handled the prompt without truncation.',
+          confidence: 0.7,
+        },
+      ],
+    })
+    fetchMock.mockResolvedValue(okResponse(payload, { prompt: 1200, completion: 400 }))
+
+    const client = createOpenAICompatibleClient({
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'qwen2.5:7b-instruct',
+    })
+    const extractor = createLlmExtractor({ client, fallback: heuristic })
+    const out = await extractor.extract(sampleInput())
+    expect(out.summary).toContain('SLM')
+    expect(out.proposals).toHaveLength(1)
+    expect(out.proposals[0]!.source_session).toBe('S1')
   })
 })

@@ -45,6 +45,14 @@ interface IndexRow {
   valid_to?: string | null
   linked_symbols?: unknown[]
   geography?: string[]
+  /**
+   * Pre-computed summary written into atom frontmatter at promote/retain
+   * time (ADR--SUMMARY-TLDR). Recall returns this as the hit snippet
+   * when present.
+   */
+  summary_tldr?: string
+  summary_tldr_body_hash?: string
+  summary_tldr_generated_at?: string
 }
 
 async function* walkMarkdown(dir: string): AsyncGenerator<string> {
@@ -153,6 +161,14 @@ function rowFromFrontmatter(
   // geography: blueprint-style file paths — ADR-010
   const geography = asStringArray(fm['geography'])
   if (geography) row.geography = geography
+
+  // summary_tldr + companions — ADR--SUMMARY-TLDR
+  const tldr = asString(fm['summary_tldr'])
+  if (tldr) row.summary_tldr = tldr
+  const tldrHash = asString(fm['summary_tldr_body_hash'])
+  if (tldrHash) row.summary_tldr_body_hash = tldrHash
+  const tldrGeneratedAt = asString(fm['summary_tldr_generated_at'])
+  if (tldrGeneratedAt) row.summary_tldr_generated_at = tldrGeneratedAt
 
   return { row }
 }

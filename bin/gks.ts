@@ -107,6 +107,15 @@ async function main(): Promise<void> {
     case 'inbound':
       await cmdInbound(subArgv)
       break
+    case 'tldr':
+      await cmdTldr(subArgv)
+      break
+    case 'community':
+      await cmdCommunity(subArgv)
+      break
+    case 'episodic':
+      await cmdEpisodic(subArgv)
+      break
     case 'poc':
       await cmdPoc(subArgv)
       break
@@ -1072,12 +1081,40 @@ async function cmdVerifyFlow(argv: string[]): Promise<void> {
 async function cmdValidate(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
-    options: { ...GLOBAL_OPTIONS, links: { type: 'boolean' } },
+    options: {
+      ...GLOBAL_OPTIONS,
+      links: { type: 'boolean' },
+      'tldr-staleness': { type: 'boolean' },
+    },
   })
   const flags = readGlobals(values)
-  // Default mode is --links — it's the only check we ship today.
   const store = await openStore(flags)
   await store.atomic.loadIndex()
+
+  // --tldr-staleness: read each atom's body, recompute hash, compare with
+  // the stored summary_tldr_body_hash. Atoms with no TLDR are skipped
+  // (the field is optional). Per FEAT--SUMMARY-TLDR AC7, this exits
+  // non-zero when any atom is stale (warn-level, recall keeps working).
+  if (values['tldr-staleness']) {
+    const stale = await collectStaleTldr(store)
+    const result = { ok: stale.length === 0, stale }
+    emit(flags, result, () => {
+      console.log(`tldr-staleness: scanned ${store.atomic.size()} atom(s)`)
+      if (stale.length === 0) {
+        console.log('  status: OK')
+      } else {
+        console.log(`  status: STALE (${stale.length} atom(s))`)
+        for (const s of stale) {
+          console.log(`  ✗ ${s.id} — ${s.reason}`)
+        }
+        console.log('  hint: re-run `gks inbound promote ... --generate-tldr` after editing.')
+      }
+    })
+    if (!result.ok) process.exit(1)
+    return
+  }
+
+  // Default mode is --links.
   const byId = new Map<string, ReturnType<typeof store.atomic.filter>[number]>()
   for (const e of store.atomic.filter({})) byId.set(e.id, e)
   const result = validateLinks(byId)
@@ -1085,6 +1122,30 @@ async function cmdValidate(argv: string[]): Promise<void> {
     for (const line of formatValidateLinksResult(result)) console.log(line)
   })
   if (!result.ok) process.exit(1)
+}
+
+async function collectStaleTldr(
+  store: Awaited<ReturnType<typeof openStore>>,
+): Promise<Array<{ id: string; reason: string }>> {
+  const { bodyHash } = await import('../src/memory/tldr.js')
+  const out: Array<{ id: string; reason: string }> = []
+  for (const entry of store.atomic.filter({})) {
+    if (!entry.summary_tldr) continue // no TLDR → not eligible for staleness
+    const note = await store.atomic.lookup(entry.id)
+    if (!note) continue
+    // Strip frontmatter so the hash matches the body the TLDR was
+    // generated from (promote stamps over the post-frontmatter body).
+    const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+    const expected = entry.summary_tldr_body_hash
+    if (!expected) {
+      out.push({ id: entry.id, reason: 'summary_tldr present but body_hash missing' })
+      continue
+    }
+    if (bodyHash(body) !== expected) {
+      out.push({ id: entry.id, reason: 'body hash mismatch — body edited since TLDR generated' })
+    }
+  }
+  return out
 }
 
 // ─── new-feature scaffolder (ADR-014 item 5) ───────────────────────────────
@@ -1216,7 +1277,12 @@ async function cmdInboundPromote(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { ...GLOBAL_OPTIONS, force: { type: 'boolean' }, status: { type: 'string' } },
+    options: {
+      ...GLOBAL_OPTIONS,
+      force: { type: 'boolean' },
+      status: { type: 'string' },
+      'generate-tldr': { type: 'boolean' },
+    },
   })
   const flags = readGlobals(values)
   const id = positionals[0]
@@ -1225,15 +1291,621 @@ async function cmdInboundPromote(argv: string[]): Promise<void> {
     process.exit(1)
   }
   const store = await openStore(flags)
+
+  // --generate-tldr: build a generator. Heuristic by default — zero LLM
+  // cost, deterministic, no API needed. Wire LlmClient via env if any of
+  // GKS_LLM_BASE_URL / ANTHROPIC_API_KEY is set.
+  let tldrGenerator: import('../src/memory/tldr.js').TldrGenerator | undefined
+  if (values['generate-tldr']) {
+    const { heuristicTldrGenerator, createLlmTldrGenerator } = await import('../src/memory/tldr.js')
+    if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+      const { createOpenAICompatibleClient } = await import('../src/memory/consolidator-llm.js')
+      tldrGenerator = createLlmTldrGenerator({ client: createOpenAICompatibleClient() })
+    } else if (process.env['ANTHROPIC_API_KEY']) {
+      const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+      tldrGenerator = createLlmTldrGenerator({ client: createAnthropicClient() })
+    } else {
+      tldrGenerator = heuristicTldrGenerator()
+    }
+  }
+
   const result = await store.inbound.promote(id, {
     force: values['force'] === true,
     status: values['status'] as string | undefined,
+    ...(values['generate-tldr'] ? { generateTldr: true } : {}),
+    ...(tldrGenerator ? { tldrGenerator } : {}),
   })
   emit(flags, result, () => {
     console.log(`✓ promoted ${result.id}`)
     console.log(`  ${result.source}`)
     console.log(`  → ${result.dest}`)
     console.log('  remember: rebuild the index with `npm run msp:index`')
+  })
+}
+
+// ─── tldr (regenerate atom summaries) ──────────────────────────────────────
+
+async function cmdTldr(argv: string[]): Promise<void> {
+  const subcmd = argv[0]
+  const rest = argv.slice(1)
+  if (!subcmd) {
+    console.error('gks tldr: missing subcommand. Try: regenerate')
+    process.exit(1)
+  }
+  switch (subcmd) {
+    case 'regenerate':
+    case 'regen':
+      await cmdTldrRegenerate(rest)
+      break
+    default:
+      console.error(`gks tldr: unknown subcommand '${subcmd}'`)
+      process.exit(1)
+  }
+}
+
+/**
+ * `gks tldr regenerate <id...> [--all-stale]`
+ *
+ * Reads each atom's body, runs the configured generator, and rewrites the
+ * frontmatter with fresh summary_tldr / body_hash / generated_at fields.
+ * Generator selection mirrors `inbound promote --generate-tldr`:
+ *   - GKS_LLM_BASE_URL / GKS_LLM_API_KEY → OpenAI-compatible local SLM
+ *   - ANTHROPIC_API_KEY                  → Anthropic
+ *   - else                                → heuristic (deterministic)
+ *
+ * Designed to plug into a pre-commit / pre-push hook — see
+ * CONTRIBUTING.md for sample wiring.
+ */
+async function cmdTldrRegenerate(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      'all-stale': { type: 'boolean' },
+      'dry-run': { type: 'boolean' },
+    },
+  })
+  const flags = readGlobals(values)
+  const store = await openStore(flags)
+  await store.atomic.loadIndex()
+
+  const allStale = values['all-stale'] === true
+  const dryRun = values['dry-run'] === true
+  const explicitIds = positionals
+
+  if (!allStale && explicitIds.length === 0) {
+    console.error('gks tldr regenerate: pass at least one atomic id, or --all-stale')
+    process.exit(1)
+  }
+
+  // Build the generator once. Heuristic fallback ensures the command
+  // always works offline.
+  const { heuristicTldrGenerator, createLlmTldrGenerator, generateTldrStamp } = await import(
+    '../src/memory/tldr.js'
+  )
+  let generator: import('../src/memory/tldr.js').TldrGenerator
+  if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+    const { createOpenAICompatibleClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createOpenAICompatibleClient() })
+  } else if (process.env['ANTHROPIC_API_KEY']) {
+    const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createAnthropicClient() })
+  } else {
+    generator = heuristicTldrGenerator()
+  }
+
+  // Resolve target ids.
+  const { bodyHash } = await import('../src/memory/tldr.js')
+  let targets: string[]
+  if (allStale) {
+    targets = []
+    for (const entry of store.atomic.filter({})) {
+      if (!entry.summary_tldr || !entry.summary_tldr_body_hash) continue
+      const note = await store.atomic.lookup(entry.id)
+      if (!note) continue
+      const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+      if (bodyHash(body) !== entry.summary_tldr_body_hash) targets.push(entry.id)
+    }
+    // Append any explicit ids the user passed alongside --all-stale.
+    for (const id of explicitIds) if (!targets.includes(id)) targets.push(id)
+  } else {
+    targets = explicitIds
+  }
+
+  if (targets.length === 0) {
+    emit(flags, { ok: true, regenerated: [], skipped: 'no stale atoms' }, () => {
+      console.log('tldr regenerate: nothing to do (no stale atoms)')
+    })
+    return
+  }
+
+  const { regenerateTldrInPlace } = await import('../src/memory/tldr.js')
+
+  const regenerated: Array<{ id: string; path: string; generator: string }> = []
+  const errors: Array<{ id: string; reason: string }> = []
+  for (const id of targets) {
+    const entry = store.atomic.getEntry(id)
+    if (!entry) {
+      errors.push({ id, reason: 'not in atomic_index.jsonl (run `npm run msp:index` first?)' })
+      continue
+    }
+    const note = await store.atomic.lookup(id)
+    if (!note) {
+      errors.push({ id, reason: 'lookup returned null' })
+      continue
+    }
+    if (dryRun) {
+      const body = note.body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+      const stamp = await generateTldrStamp(generator, body, {
+        ...(note.title ? { title: note.title } : {}),
+        type: note.type,
+      })
+      regenerated.push({ id, path: entry.path, generator: generator.name })
+      console.log(`[dry-run] ${id}`)
+      console.log(`  generator: ${generator.name}`)
+      console.log(`  summary_tldr: ${stamp.summary_tldr.slice(0, 120)}${stamp.summary_tldr.length > 120 ? '…' : ''}`)
+      continue
+    }
+    try {
+      const filePath = await regenerateTldrInPlace(store, id, generator)
+      regenerated.push({ id, path: filePath, generator: generator.name })
+    } catch (err) {
+      errors.push({ id, reason: (err as Error).message })
+    }
+  }
+
+  const result = { ok: errors.length === 0, regenerated, errors }
+  emit(flags, result, () => {
+    console.log(`tldr regenerate: ${regenerated.length} atom(s) updated using ${generator.name}`)
+    for (const r of regenerated) console.log(`  ✓ ${r.id} → ${r.path}`)
+    for (const e of errors) console.log(`  ✗ ${e.id} — ${e.reason}`)
+    if (regenerated.length > 0 && !dryRun) {
+      console.log('  remember: rebuild the index with `npm run msp:index`')
+    }
+  })
+  if (!result.ok) process.exit(1)
+}
+
+// ─── community (higher-order summaries over atom communities) ─────────────
+
+async function cmdCommunity(argv: string[]): Promise<void> {
+  const subcmd = argv[0]
+  const rest = argv.slice(1)
+  if (!subcmd) {
+    console.error('gks community: missing subcommand. Try: summarize | detect')
+    process.exit(1)
+  }
+  switch (subcmd) {
+    case 'summarize':
+    case 'summarise':
+      await cmdCommunitySummarize(rest)
+      break
+    case 'detect':
+      await cmdCommunityDetect(rest)
+      break
+    default:
+      console.error(`gks community: unknown subcommand '${subcmd}'`)
+      process.exit(1)
+  }
+}
+
+/**
+ * `gks community summarize <seed> [--hops=N] [--include-bodies]
+ *                                  [--max-members=N] [--edges=a,b,c]`
+ *
+ * Walks structural crosslinks from a seed atom and synthesises a single
+ * narrative over the resulting community. Generator selection mirrors
+ * `inbound promote --generate-tldr` and `tldr regenerate`:
+ *   - GKS_LLM_BASE_URL / GKS_LLM_API_KEY → OpenAI-compatible local SLM
+ *   - ANTHROPIC_API_KEY                  → Anthropic
+ *   - else                                → heuristic (deterministic bullets)
+ *
+ * Implements FEAT--COMMUNITY-SUMMARIES from the user-facing CLI side.
+ */
+async function cmdCommunitySummarize(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      hops: { type: 'string' },
+      'include-bodies': { type: 'boolean' },
+      'max-members': { type: 'string' },
+      edges: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const seedArgs = positionals
+  if (seedArgs.length === 0) {
+    console.error('gks community summarize: pass at least one atomic id')
+    process.exit(1)
+  }
+  const hopsRaw = values['hops']
+  const hops = typeof hopsRaw === 'string' ? Number.parseInt(hopsRaw, 10) : undefined
+  const maxMembersRaw = values['max-members']
+  const maxMembers =
+    typeof maxMembersRaw === 'string' ? Number.parseInt(maxMembersRaw, 10) : undefined
+  const edgesRaw = values['edges']
+  const edges =
+    typeof edgesRaw === 'string'
+      ? edgesRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined
+
+  // Generator selection — same precedence as `tldr regenerate`.
+  const { heuristicTldrGenerator, createLlmTldrGenerator } = await import(
+    '../src/memory/tldr.js'
+  )
+  let generator: import('../src/memory/tldr.js').TldrGenerator
+  if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+    const { createOpenAICompatibleClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createOpenAICompatibleClient() })
+  } else if (process.env['ANTHROPIC_API_KEY']) {
+    const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+    generator = createLlmTldrGenerator({ client: createAnthropicClient() })
+  } else {
+    generator = heuristicTldrGenerator()
+  }
+
+  const store = await openStore(flags)
+  const result = await store.summarizeCommunity({
+    seed: seedArgs.length === 1 ? seedArgs[0]! : seedArgs,
+    ...(hops !== undefined ? { hops } : {}),
+    ...(maxMembers !== undefined ? { maxMembers } : {}),
+    ...(edges ? { edges } : {}),
+    includeBodies: values['include-bodies'] === true,
+    generator,
+  })
+
+  emit(flags, result, () => {
+    console.log(`community summary (${result.members.length} member(s)${result.truncated ? ', truncated' : ''})`)
+    console.log(`  generator:           ${result.generator}`)
+    console.log(`  input tokens (est.): ~${result.inputTokensEstimate}`)
+    console.log('')
+    console.log('  members (phase asc, id asc):')
+    for (const m of result.members) console.log(`    • ${m}`)
+    console.log('')
+    console.log('  ── synthesis ──')
+    for (const line of result.summary.split('\n')) console.log(`  ${line}`)
+  })
+}
+
+/**
+ * `gks community detect [--edges=a,b,c] [--min-size=N]`
+ *
+ * Auto-detect communities (clusters) in the atom crosslink graph using
+ * deterministic Louvain-lite. Prints `community_id`, `size`, `density`,
+ * and member ids for each cluster. Pair with `community summarize` to
+ * generate per-cluster narratives.
+ */
+async function cmdCommunityDetect(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      ...GLOBAL_OPTIONS,
+      edges: { type: 'string' },
+      'min-size': { type: 'string' },
+      labels: { type: 'boolean' },
+    },
+  })
+  const flags = readGlobals(values)
+  const edgesRaw = values['edges']
+  const edges =
+    typeof edgesRaw === 'string'
+      ? edgesRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined
+  const minSizeRaw = values['min-size']
+  const minSize =
+    typeof minSizeRaw === 'string' ? Number.parseInt(minSizeRaw, 10) : undefined
+
+  // --labels: build withLabels per the env precedence used by tldr regen.
+  let withLabels: import('../src/memory/community-detect.js').DetectCommunitiesOptions['withLabels']
+  if (values['labels']) {
+    const { heuristicTldrGenerator, createLlmTldrGenerator } = await import(
+      '../src/memory/tldr.js'
+    )
+    if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+      const { createOpenAICompatibleClient } = await import(
+        '../src/memory/consolidator-llm.js'
+      )
+      withLabels = { generator: createLlmTldrGenerator({ client: createOpenAICompatibleClient() }) }
+    } else if (process.env['ANTHROPIC_API_KEY']) {
+      const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+      withLabels = { generator: createLlmTldrGenerator({ client: createAnthropicClient() }) }
+    } else {
+      // No LLM env → heuristic only (true).
+      withLabels = true
+      void heuristicTldrGenerator // imported for symmetry; not used here
+    }
+  }
+
+  const store = await openStore(flags)
+  const result = await store.detectCommunities({
+    ...(edges ? { edgeKeys: edges } : {}),
+    ...(minSize !== undefined ? { minSize } : {}),
+    ...(withLabels !== undefined ? { withLabels } : {}),
+  })
+
+  emit(flags, result, () => {
+    console.log(
+      `community detect: ${result.communities.length} community(ies) over ${result.total_atoms} atom(s) ` +
+        `(modularity Q=${result.modularity.toFixed(3)})`,
+    )
+    for (const c of result.communities) {
+      const labelStr = c.label ? `  "${c.label}"` : ''
+      console.log(
+        `  • ${c.community_id}${labelStr}  size=${c.size}  density=${c.density.toFixed(3)}`,
+      )
+      for (const m of c.members) console.log(`      ${m}`)
+    }
+    if (result.orphans.length > 0) {
+      console.log('')
+      console.log(`  orphans (${result.orphans.length}):`)
+      for (const o of result.orphans) console.log(`    ${o}`)
+    }
+  })
+}
+
+// ─── episodic (v2 inspector + v1→v2 migrator) ─────────────────────────────
+
+async function cmdEpisodic(argv: string[]): Promise<void> {
+  const subcmd = argv[0]
+  const rest = argv.slice(1)
+  if (!subcmd) {
+    console.error('gks episodic: missing subcommand. Try: show | migrate | list')
+    process.exit(1)
+  }
+  switch (subcmd) {
+    case 'show':
+      await cmdEpisodicShow(rest)
+      break
+    case 'migrate':
+      await cmdEpisodicMigrate(rest)
+      break
+    case 'list':
+      await cmdEpisodicList(rest)
+      break
+    case 'lookup':
+      await cmdEpisodicLookup(rest)
+      break
+    default:
+      console.error(`gks episodic: unknown subcommand '${subcmd}'`)
+      process.exit(1)
+  }
+}
+
+/**
+ * `gks episodic show <session_id> [--full]`
+ *
+ * Pretty-print a v2 episodic session — header, episodes (with
+ * denormalised counts), and (with --full) all turns.
+ */
+async function cmdEpisodicShow(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      full: { type: 'boolean' },
+    },
+  })
+  const flags = readGlobals(values)
+  const sessionId = positionals[0]
+  if (!sessionId) {
+    console.error('gks episodic show: missing session_id')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+  const session = await store.episodicV2.readSession(sessionId)
+  if (!session) {
+    emit(flags, { ok: false, reason: 'no v2 session at that id' }, () => {
+      console.log(`episodic show: no v2 session at ${sessionId}`)
+      console.log('  hint: run `gks episodic migrate <session_id>` if you have a v1 markdown')
+    })
+    process.exit(1)
+  }
+  const episodes = await store.episodicV2.listEpisodes(sessionId)
+  const turns = values['full']
+    ? await store.episodicV2.listTurns(sessionId)
+    : []
+
+  emit(
+    flags,
+    { ok: true, session, episodes, ...(values['full'] ? { turns } : {}) },
+    () => {
+      console.log(`episodic show: ${sessionId}`)
+      console.log(`  schema_version:  ${session.schema_version}`)
+      console.log(`  system:          ${session.system}`)
+      console.log(`  started_at:      ${session.started_at}`)
+      console.log(`  ended_at:        ${session.ended_at ?? '(unset — still active)'}`)
+      console.log(`  episodes:        ${episodes.length}`)
+      const totalTurns = episodes.reduce((s, e) => s + e.turn_count, 0)
+      console.log(`  turn_count:      ${totalTurns}`)
+      if (session.summary) {
+        console.log('')
+        console.log(`  summary: ${session.summary}`)
+      }
+      if (episodes.length > 0) {
+        console.log('')
+        console.log('  episodes:')
+        for (const e of episodes) {
+          console.log(`    • ${e.episode_id} [${e.episode_type}] turns=${e.turn_count}`)
+        }
+      }
+      if (values['full'] && turns.length > 0) {
+        console.log('')
+        console.log(`  turns (${turns.length}):`)
+        for (const t of turns) {
+          const text = (t.text_excerpt ?? t.summary ?? t.raw_text ?? '').slice(0, 80)
+          console.log(`    ${t.turn_id} [${t.episode_id}] ${t.speaker}: ${text}`)
+        }
+      }
+    },
+  )
+}
+
+/**
+ * `gks episodic migrate <session_id>`
+ *
+ * Re-emit a v1 markdown session into the v2 three-document layout.
+ * Conservative mapping (one Episode + one Turn per parsed trace step,
+ * matching how endSession writes new v2 sessions).
+ */
+async function cmdEpisodicMigrate(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { ...GLOBAL_OPTIONS, force: { type: 'boolean' } },
+  })
+  const flags = readGlobals(values)
+  const sessionId = positionals[0]
+  if (!sessionId) {
+    console.error('gks episodic migrate: missing session_id')
+    process.exit(1)
+  }
+  const store = await openStore(flags)
+
+  // Refuse to clobber an existing v2 session unless --force.
+  const existingV2 = await store.episodicV2.readSession(sessionId)
+  if (existingV2 && !values['force']) {
+    console.error(`gks episodic migrate: v2 session already exists at ${sessionId}; pass --force to overwrite`)
+    process.exit(1)
+  }
+
+  // Read the v1 markdown + raw trace.
+  const v1Items = await store.episodic.listEpisodic()
+  const v1 = v1Items.find((x) => x.session_id === sessionId || x.id === sessionId)
+  if (!v1) {
+    console.error(`gks episodic migrate: no v1 markdown for session_id=${sessionId}`)
+    process.exit(1)
+  }
+  const trace = await store.episodic.readTrace(sessionId)
+
+  const { newEpisodicSession } = await import('../src/memory/episodic-v2.js')
+  const sess = newEpisodicSession({
+    session_id: sessionId,
+    system: 'gks-v3-migrated',
+    started_at:
+      typeof v1.frontmatter['started_at'] === 'string'
+        ? (v1.frontmatter['started_at'] as string)
+        : new Date().toISOString(),
+  })
+  await store.episodicV2.writeSession(sess)
+
+  const episodeId = `E-${sessionId}-001`
+  await store.episodicV2.appendEpisode(sessionId, {
+    episode_id: episodeId,
+    episode_type: 'interaction',
+    provenance: { written_by: 'gks-episodic-migrate', authoritative_fields: ['from_v1_markdown'] },
+  })
+  for (const step of trace) {
+    await store.episodicV2.appendTurn(sessionId, {
+      episode_id: episodeId,
+      speaker: step.kind,
+      t: step.t,
+      raw_text: step.content,
+    })
+  }
+  await store.episodicV2.finaliseSession(sessionId, {
+    ended_at:
+      typeof v1.frontmatter['ended_at'] === 'string'
+        ? (v1.frontmatter['ended_at'] as string)
+        : new Date().toISOString(),
+    summary: v1.body.trim().slice(0, 1000),
+  })
+
+  emit(flags, { ok: true, session_id: sessionId, episode_id: episodeId, turn_count: trace.length }, () => {
+    console.log(`episodic migrate: ${sessionId}`)
+    console.log(`  v1 source: ${v1.path}`)
+    console.log(`  v2 episode: ${episodeId} (${trace.length} turn(s))`)
+    console.log(`  v2 dir:    <episodicDir>/${sessionId}/`)
+  })
+}
+
+/**
+ * `gks episodic list` — print one row per session from _index.jsonl.
+ */
+async function cmdEpisodicList(argv: string[]): Promise<void> {
+  const { values } = parseArgs({ args: argv, options: { ...GLOBAL_OPTIONS } })
+  const flags = readGlobals(values)
+  const store = await openStore(flags)
+  const sessions = await store.episodicV2.listSessions()
+  emit(flags, { ok: true, sessions }, () => {
+    console.log(`episodic list: ${sessions.length} v2 session(s)`)
+    for (const s of sessions) {
+      console.log(
+        `  ${s.session_id}  episodes=${s.episode_count} turns=${s.turn_count}  ${s.started_at}` +
+          (s.ended_at ? ` → ${s.ended_at}` : ' (active)'),
+      )
+    }
+  })
+}
+
+/**
+ * `gks episodic lookup <ATOM--ID> [--predicates=a,b]`
+ *
+ * Reverse-lookup: scan every v2 episodic session for episodes/turns
+ * whose typed crosslinks reference the given atom id. Implements
+ * BLUEPRINT--REVERSE-EPISODIC-LOOKUP.
+ */
+async function cmdEpisodicLookup(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      ...GLOBAL_OPTIONS,
+      predicates: { type: 'string' },
+    },
+  })
+  const flags = readGlobals(values)
+  const atomId = positionals[0]
+  if (!atomId) {
+    console.error('gks episodic lookup: missing atom id (e.g. FEAT--MY-FEATURE)')
+    process.exit(1)
+  }
+  const predRaw = values['predicates']
+  const predicates =
+    typeof predRaw === 'string'
+      ? predRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined
+
+  const store = await openStore(flags)
+  const result = await store.lookupByAtom(atomId, predicates ? { predicates } : {})
+
+  emit(flags, result, () => {
+    console.log(
+      `episodic lookup: ${atomId} — ${result.episodes.length} episode(s), ${result.turns.length} turn(s)`,
+    )
+    console.log(
+      `  scanned: sessions=${result.scanned.sessions} episodes=${result.scanned.episodes} turns=${result.scanned.turns}`,
+    )
+    if (result.episodes.length > 0) {
+      console.log('')
+      console.log('  episodes:')
+      for (const e of result.episodes) {
+        console.log(
+          `    ${e.session_id} / ${e.episode_id} [${e.predicates.join(',')}] (${e.episode_type})`,
+        )
+      }
+    }
+    if (result.turns.length > 0) {
+      console.log('')
+      console.log('  turns (chronological):')
+      for (const t of result.turns) {
+        console.log(
+          `    ${t.t}  ${t.session_id}/${t.turn_id} ${t.speaker}  [${t.predicates.join(',')}]`,
+        )
+      }
+    }
   })
 }
 
@@ -1337,7 +2009,18 @@ Subcommands
                                                    scaffold an ADR draft into inbound from
                                                    a closed (validated/invalidated/abandoned) POC
   verify-flow ID                              walk crosslinks; exit-1 if any node not stable
-  validate [--links]                          read-only crosslink integrity check
+  validate [--links] [--tldr-staleness]       read-only crosslink + TLDR integrity check
+  tldr regenerate ID... [--all-stale] [--dry-run]
+                                              regenerate summary_tldr in atom frontmatter
+  community summarize SEED [--hops=N] [--include-bodies] [--max-members=N] [--edges=a,b,c]
+                                              synthesize a narrative across a crosslink neighbourhood
+  community detect [--edges=a,b,c] [--min-size=N]
+                                              auto-detect clusters via Louvain-lite
+  episodic show SESSION_ID [--full]           pretty-print a v2 episodic session
+  episodic migrate SESSION_ID [--force]       re-emit a v1 markdown session into v2 layout
+  episodic list                               list all v2 sessions from _index.jsonl
+  episodic lookup ATOM--ID [--predicates=a,b]
+                                              reverse-lookup: episodes/turns citing the atom
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

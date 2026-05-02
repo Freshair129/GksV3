@@ -634,7 +634,39 @@ export class MemoryStore {
    */
   async summarizeCommunity(req: CommunityRequest): Promise<CommunityResult> {
     await this.atomic.loadIndex()
-    return doSummarizeCommunity({ atomic: this.atomic, cache: this._communityCache }, req)
+    // Plumb a default semantic search backed by the atomic vector store
+    // + active embedder. Only invoked when req.mode is 'semantic' or
+    // 'hybrid' (per ADR--SEMANTIC-COMMUNITY).
+    const vectorSearch: import('./community.js').SemanticSearchFn = async (seeds, opts) => {
+      const embedder = await this.embedder()
+      const store = await this.getVectorStore('atomic')
+      const seenIds = new Set(seeds.map((s) => s.id))
+      const out = new Map<string, import('./types.js').AtomicEntry>()
+      for (const seed of seeds) {
+        const text = seed.summary_tldr ?? seed.title ?? seed.id
+        const queryVec = await embedder.embed(text)
+        const hits = await store.search(queryVec, {
+          topK: opts.topK,
+          scoreThreshold: opts.threshold,
+        })
+        for (const h of hits) {
+          // Vector docs carry an atom path in metadata; resolve back to
+          // the AtomicEntry the path belongs to (skip self + non-atom hits).
+          const path = (h.doc.metadata['path'] as string | undefined) ?? ''
+          if (!path) continue
+          const entry = this.atomic
+            .filter({})
+            .find((e) => e.path === path || e.path === path.replace(/^gks\//, ''))
+          if (!entry || seenIds.has(entry.id) || out.has(entry.id)) continue
+          out.set(entry.id, entry)
+        }
+      }
+      return [...out.values()]
+    }
+    return doSummarizeCommunity(
+      { atomic: this.atomic, cache: this._communityCache, vectorSearch },
+      req,
+    )
   }
 
   private readonly _communityCache: CommunityCache = new CommunityCache()
@@ -891,6 +923,7 @@ export type {
   CommunityEdgeKey,
   CommunityRequest,
   CommunityResult,
+  SemanticSearchFn,
   SummarizeCommunityDeps,
 } from './community.js'
 export {

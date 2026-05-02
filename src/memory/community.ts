@@ -58,6 +58,17 @@ export interface CommunityRequest {
   generator?: TldrGenerator
   /** Token cap for the synthesised narrative. Default 500. */
   maxOutputTokens?: number
+  /**
+   * Membership composition mode (see ADR--SEMANTIC-COMMUNITY).
+   *   'structural' (default) — walk crosslinks only
+   *   'semantic'             — vector nearest-neighbour only
+   *   'hybrid'               — structural ∪ semantic, deduplicated
+   */
+  mode?: 'structural' | 'semantic' | 'hybrid'
+  /** Cosine threshold for semantic membership. Default 0.75. */
+  semanticThreshold?: number
+  /** Top-K passed to the vector search. Default 10. */
+  semanticTopK?: number
 }
 
 export interface CommunityResult {
@@ -73,7 +84,27 @@ export interface CommunityResult {
   inputTokensEstimate: number
   /** Generator name (e.g. 'heuristic', 'llm:anthropic:claude-...'). */
   generator: string
+  /**
+   * Per-source membership breakdown. Populated only when
+   * `mode !== 'structural'` so audit-style callers can verify which
+   * walk path contributed each member.
+   */
+  membership_breakdown?: {
+    structural: string[]
+    semantic: string[]
+    overlap: string[]
+  }
 }
+
+/**
+ * Resolves seed entries to a list of nearest atoms via the vector
+ * layer. Pluggable so tests can stub without spinning up a real
+ * embedder + vector backend; production wiring lives in MemoryStore.
+ */
+export type SemanticSearchFn = (
+  seeds: AtomicEntry[],
+  opts: { threshold: number; topK: number },
+) => Promise<AtomicEntry[]>
 
 /**
  * Minimal AtomicLayer surface this module needs. Declared structurally
@@ -239,8 +270,22 @@ export class CommunityCache {
   }
 }
 
-function cacheKey(memberIds: string[], generatorName: string, includeBodies: boolean): string {
-  return `${[...memberIds].sort().join(',')}|${generatorName}|${includeBodies ? 'body' : 'tldr'}`
+function cacheKey(
+  memberIds: string[],
+  generatorName: string,
+  includeBodies: boolean,
+  mode: string = 'structural',
+  semanticThreshold: number = DEFAULT_SEMANTIC_THRESHOLD,
+  semanticTopK: number = DEFAULT_SEMANTIC_TOPK,
+): string {
+  return [
+    [...memberIds].sort().join(','),
+    generatorName,
+    includeBodies ? 'body' : 'tldr',
+    mode,
+    semanticThreshold.toFixed(3),
+    String(semanticTopK),
+  ].join('|')
 }
 
 function estimateTokens(text: string): number {
@@ -264,7 +309,16 @@ synthesis text.`
 export interface SummarizeCommunityDeps {
   atomic: CommunityAtomic
   cache: CommunityCache
+  /**
+   * Required when `req.mode` is 'semantic' or 'hybrid'. Resolves seed
+   * atoms to their nearest neighbours via the vector layer. Pluggable
+   * so tests can stub.
+   */
+  vectorSearch?: SemanticSearchFn
 }
+
+const DEFAULT_SEMANTIC_THRESHOLD = 0.75
+const DEFAULT_SEMANTIC_TOPK = 10
 
 export async function summarizeCommunity(
   deps: SummarizeCommunityDeps,
@@ -276,12 +330,68 @@ export async function summarizeCommunity(
   const includeBodies = req.includeBodies ?? false
   const generator = req.generator ?? heuristicTldrGenerator()
   const maxOutputTokens = req.maxOutputTokens ?? 500
+  const mode = req.mode ?? 'structural'
+  const semanticThreshold = req.semanticThreshold ?? DEFAULT_SEMANTIC_THRESHOLD
+  const semanticTopK = req.semanticTopK ?? DEFAULT_SEMANTIC_TOPK
 
-  const { members, truncated } = walkCommunity(deps.atomic, req.seed, {
-    hops,
-    edges,
-    maxMembers,
-  })
+  // Structural walk (skipped in semantic-only mode).
+  let structuralEntries: AtomicEntry[] = []
+  let structuralTruncated = false
+  if (mode === 'structural' || mode === 'hybrid') {
+    const result = walkCommunity(deps.atomic, req.seed, { hops, edges, maxMembers })
+    structuralEntries = result.members
+    structuralTruncated = result.truncated
+  }
+
+  // Semantic walk (requires vectorSearch dep).
+  let semanticEntries: AtomicEntry[] = []
+  if (mode === 'semantic' || mode === 'hybrid') {
+    if (!deps.vectorSearch) {
+      throw new Error(
+        `summarizeCommunity: mode='${mode}' requires deps.vectorSearch. ` +
+          `Pass a SemanticSearchFn or use mode='structural'.`,
+      )
+    }
+    const seedArr = Array.isArray(req.seed) ? req.seed : [req.seed]
+    const seedEntries = seedArr
+      .map((id) => deps.atomic.getEntry(id))
+      .filter((e): e is AtomicEntry => e !== undefined)
+    if (seedEntries.length > 0) {
+      semanticEntries = await deps.vectorSearch(seedEntries, {
+        threshold: semanticThreshold,
+        topK: semanticTopK,
+      })
+    }
+  }
+
+  // Merge + dedupe by id.
+  const byId = new Map<string, AtomicEntry>()
+  for (const e of structuralEntries) byId.set(e.id, e)
+  for (const e of semanticEntries) if (!byId.has(e.id)) byId.set(e.id, e)
+  let combined = [...byId.values()].sort(
+    (a, b) => a.phase - b.phase || a.id.localeCompare(b.id),
+  )
+  let truncated = structuralTruncated
+  if (combined.length > maxMembers) {
+    combined = combined.slice(0, maxMembers)
+    truncated = true
+  }
+  const members = combined
+
+  // Membership breakdown (only when semantic dimension is involved).
+  const breakdown =
+    mode === 'structural'
+      ? undefined
+      : (() => {
+          const structIds = new Set(structuralEntries.map((e) => e.id))
+          const semIds = new Set(semanticEntries.map((e) => e.id))
+          const overlap = [...structIds].filter((id) => semIds.has(id)).sort()
+          return {
+            structural: [...structIds].sort(),
+            semantic: [...semIds].sort(),
+            overlap,
+          }
+        })()
 
   if (members.length === 0) {
     return {
@@ -291,13 +401,14 @@ export async function summarizeCommunity(
       cached: false,
       inputTokensEstimate: 0,
       generator: generator.name,
+      ...(breakdown ? { membership_breakdown: breakdown } : {}),
     }
   }
 
   const memberIds = members.map((m) => m.id)
-  const key = cacheKey(memberIds, generator.name, includeBodies)
+  const key = cacheKey(memberIds, generator.name, includeBodies, mode, semanticThreshold, semanticTopK)
   const cached = deps.cache.get(key)
-  if (cached) return cached
+  if (cached) return { ...cached, ...(breakdown ? { membership_breakdown: breakdown } : {}) }
 
   const { text, usedTldrCount, usedBodyCount } = await buildCommunityPrompt(
     deps.atomic,
@@ -332,6 +443,7 @@ export async function summarizeCommunity(
     cached: false,
     inputTokensEstimate: estimateTokens(text),
     generator: generator.name,
+    ...(breakdown ? { membership_breakdown: breakdown } : {}),
   }
   deps.cache.set(key, result)
   // Reading from `cache.get(key)` would now report `cached: true`; the

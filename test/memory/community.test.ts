@@ -349,3 +349,160 @@ describe('MemoryStore.summarizeCommunity (integration)', () => {
     expect(result.generator).toBe('heuristic')
   })
 })
+
+// ─── V1-V7: SEMANTIC-COMMUNITY mode ─────────────────────────────────────
+
+describe('summarizeCommunity (semantic / hybrid mode)', () => {
+  function smallFixture() {
+    return [
+      entry('CONCEPT--ALPHA', 1, 'concept', { title: 'Alpha', summary_tldr: 'Alpha intro.' }),
+      entry('ADR--ALPHA', 2, 'adr', {
+        title: 'ADR Alpha',
+        summary_tldr: 'Alpha decision.',
+        crosslinks: { parent_concept: ['CONCEPT--ALPHA'] },
+      }),
+      entry('FEAT--ALPHA', 2, 'feat', {
+        title: 'Feat Alpha',
+        summary_tldr: 'Alpha feature.',
+        crosslinks: { parent_adr: ['ADR--ALPHA'] },
+      }),
+      entry('INSIGHT--ORPHAN', 1, 'insight', {
+        title: 'Orphan',
+        summary_tldr: 'No crosslink to anything.',
+      }),
+    ]
+  }
+
+  it('V1: mode default is structural — behaviour unchanged, no breakdown field', async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    const r = await summarizeCommunity({ atomic, cache }, { seed: 'FEAT--ALPHA', hops: 3 })
+    expect(r.membership_breakdown).toBeUndefined()
+    expect(r.members).toContain('FEAT--ALPHA')
+  })
+
+  it("V2: mode:'semantic' uses vectorSearch only and skips structural walk", async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    let walkCalls = 0
+    const fixtures = smallFixture()
+    const vectorSearch: import('../../src/memory/community.js').SemanticSearchFn = async () => {
+      walkCalls++
+      return [fixtures.find((f) => f.id === 'INSIGHT--ORPHAN')!, fixtures.find((f) => f.id === 'CONCEPT--ALPHA')!]
+    }
+    const r = await summarizeCommunity(
+      { atomic, cache, vectorSearch },
+      { seed: 'FEAT--ALPHA', mode: 'semantic' },
+    )
+    expect(walkCalls).toBe(1)
+    expect(r.members.sort()).toEqual(['CONCEPT--ALPHA', 'INSIGHT--ORPHAN'].sort())
+    expect(r.membership_breakdown).toBeDefined()
+    expect(r.membership_breakdown!.semantic).toEqual(['CONCEPT--ALPHA', 'INSIGHT--ORPHAN'].sort())
+    expect(r.membership_breakdown!.structural).toEqual([])
+    expect(r.membership_breakdown!.overlap).toEqual([])
+  })
+
+  it("V3: mode:'hybrid' merges structural + semantic with overlap detection", async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    const fixtures = smallFixture()
+    // Semantic returns 'A' (overlap with structural via FEAT chain) + 'ORPHAN'.
+    const vectorSearch: import('../../src/memory/community.js').SemanticSearchFn = async () => [
+      fixtures.find((f) => f.id === 'ADR--ALPHA')!,
+      fixtures.find((f) => f.id === 'INSIGHT--ORPHAN')!,
+    ]
+    const r = await summarizeCommunity(
+      { atomic, cache, vectorSearch },
+      {
+        seed: 'FEAT--ALPHA',
+        hops: 1,
+        edges: ['parent_adr'], // structural will pull ADR--ALPHA
+        mode: 'hybrid',
+      },
+    )
+    // Members: structural [FEAT--ALPHA, ADR--ALPHA] ∪ semantic [ADR--ALPHA, ORPHAN]
+    expect(r.members.sort()).toEqual(['ADR--ALPHA', 'FEAT--ALPHA', 'INSIGHT--ORPHAN'].sort())
+    expect(r.membership_breakdown!.overlap).toContain('ADR--ALPHA')
+    expect(r.membership_breakdown!.semantic).toContain('INSIGHT--ORPHAN')
+  })
+
+  it('V4: mode:semantic without vectorSearch throws a clear error', async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    await expect(
+      summarizeCommunity({ atomic, cache }, { seed: 'FEAT--ALPHA', mode: 'semantic' }),
+    ).rejects.toThrow(/requires deps\.vectorSearch/)
+  })
+
+  it('V5: cache key includes mode — structural ≠ semantic', async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    const fixtures = smallFixture()
+    const vectorSearch: import('../../src/memory/community.js').SemanticSearchFn = async () => [
+      fixtures.find((f) => f.id === 'INSIGHT--ORPHAN')!,
+    ]
+    const a = await summarizeCommunity({ atomic, cache, vectorSearch }, { seed: 'FEAT--ALPHA' })
+    expect(a.cached).toBe(false)
+    const b = await summarizeCommunity(
+      { atomic, cache, vectorSearch },
+      { seed: 'FEAT--ALPHA', mode: 'semantic' },
+    )
+    expect(b.cached).toBe(false) // different mode → fresh
+    const c = await summarizeCommunity({ atomic, cache, vectorSearch }, { seed: 'FEAT--ALPHA' })
+    expect(c.cached).toBe(true) // same args as `a` → cached
+  })
+
+  it('V6: semantic threshold is forwarded to vectorSearch', async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    let receivedThreshold = -1
+    let receivedTopK = -1
+    const vectorSearch: import('../../src/memory/community.js').SemanticSearchFn = async (
+      _seeds,
+      opts,
+    ) => {
+      receivedThreshold = opts.threshold
+      receivedTopK = opts.topK
+      return []
+    }
+    await summarizeCommunity(
+      { atomic, cache, vectorSearch },
+      { seed: 'FEAT--ALPHA', mode: 'semantic', semanticThreshold: 0.92, semanticTopK: 5 },
+    )
+    expect(receivedThreshold).toBe(0.92)
+    expect(receivedTopK).toBe(5)
+  })
+
+  it("V7: mode:'semantic' invokes generator exactly once (no extra LLM cost vs structural)", async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    const fixtures = smallFixture()
+    const vectorSearch: import('../../src/memory/community.js').SemanticSearchFn = async () => [
+      fixtures.find((f) => f.id === 'CONCEPT--ALPHA')!,
+    ]
+    let generatorCalls = 0
+    const generator: TldrGenerator = {
+      name: 'llm:counted',
+      async summarize() {
+        generatorCalls++
+        return 'mock synthesis'
+      },
+    }
+    await summarizeCommunity(
+      { atomic, cache, vectorSearch },
+      { seed: 'FEAT--ALPHA', mode: 'semantic', generator },
+    )
+    expect(generatorCalls).toBe(1)
+  })
+
+  it("mode:'semantic' returns empty when seed isn't in the atom store", async () => {
+    const atomic = makeAtomic(smallFixture())
+    const cache = new CommunityCache()
+    const vectorSearch: import('../../src/memory/community.js').SemanticSearchFn = async () => []
+    const r = await summarizeCommunity(
+      { atomic, cache, vectorSearch },
+      { seed: 'NONEXISTENT--ID', mode: 'semantic' },
+    )
+    expect(r.members).toEqual([])
+  })
+})

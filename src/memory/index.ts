@@ -992,6 +992,13 @@ export type {
   TurnRef,
 } from './episodic-v2.js'
 export { detectEpisodeBoundaries } from './episode-boundary.js'
+export {
+  buildPrompt as buildLlmBoundaryPrompt,
+  createLlmBoundaryDetector,
+  mergeSegments as mergeBoundarySegments,
+  parseLlmResponse as parseLlmBoundaryResponse,
+} from './episode-boundary-llm.js'
+export type { LlmBoundaryDetectorOptions } from './episode-boundary-llm.js'
 export type {
   EpisodeBoundaryDetector,
   EpisodeBoundaryOptions,

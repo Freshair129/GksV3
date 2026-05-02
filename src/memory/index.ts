@@ -60,6 +60,11 @@ import {
 } from './community.js'
 import { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
 import {
+  detectCommunities as doDetectCommunities,
+  type DetectCommunitiesOptions,
+  type DetectCommunitiesResult,
+} from './community-detect.js'
+import {
   withCache,
   type ObsidianAdapter,
   type ObsidianSearchHit,
@@ -697,6 +702,17 @@ export class MemoryStore {
   }
 
   private readonly _communityCache: CommunityCacheLike
+
+  /**
+   * Auto-detect communities in the atom crosslink graph (Louvain-lite).
+   * Implements BLUEPRINT--AUTO-COMMUNITIES — pure read-side, deterministic,
+   * no persistence. Pair with `summarizeCommunity` for per-cluster
+   * synthesis.
+   */
+  async detectCommunities(opts?: DetectCommunitiesOptions): Promise<DetectCommunitiesResult> {
+    await this.atomic.loadIndex()
+    return doDetectCommunities(this.atomic, opts)
+  }
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────
@@ -956,6 +972,17 @@ export type {
 } from './community.js'
 export { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
 export type { DiskCommunityCacheOptions } from './community-cache-disk.js'
+export {
+  buildAtomGraph,
+  detectCommunities,
+  louvainLite,
+} from './community-detect.js'
+export type {
+  CommunityAtomicWithFilter,
+  DetectCommunitiesOptions,
+  DetectCommunitiesResult,
+  DetectedCommunity,
+} from './community-detect.js'
 export {
   createMockObsidianAdapter,
   createRestObsidianAdapter,

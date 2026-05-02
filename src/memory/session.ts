@@ -154,6 +154,15 @@ export interface EndSessionOptions {
   /** If true (default), writes EpisodicMemory to disk + forwards proposals. */
   persist?: boolean
   sessionDir?: string
+  /**
+   * Episodic schema version to write at end-of-session. v2 (default)
+   * writes the 3-document split (session.json + episodes.jsonl +
+   * turns.jsonl) per BLUEPRINT--EPISODIC-V2 alongside the existing v1
+   * markdown. Pass '1' to skip the v2 write (legacy tooling that hasn't
+   * migrated). Both versions can coexist on disk; reflect() always
+   * produces the v1 EpisodicMemory shape.
+   */
+  schemaVersion?: '1' | '2' | 'both'
 }
 
 export interface EndSessionReport {
@@ -163,6 +172,8 @@ export interface EndSessionReport {
   reflect?: ReflectResult
   traceSteps: number
   sessionFilePath: string
+  /** Set when v2 episodic was written (default 'both' / '2'). */
+  episodicV2Path?: string
 }
 
 export async function endSession(
@@ -199,6 +210,23 @@ export async function endSession(
     })
   }
 
+  // EPISODIC-V2 write — runs alongside the v1 markdown. Default 'both'
+  // so existing readers see no behavioural change while new readers
+  // get the richer schema. The trace.jsonl content is reshaped 1:1
+  // into a single Episode + N Turns (one per trace step).
+  const schemaVersion = opts.schemaVersion ?? 'both'
+  let episodicV2Path: string | undefined
+  if ((schemaVersion === '2' || schemaVersion === 'both') && opts.persist !== false) {
+    try {
+      episodicV2Path = await writeEpisodicV2(store, session, endedAt, trace as TraceStep[], reflectResult)
+    } catch (err) {
+      log.warn('episodic v2 write failed (v1 still wrote)', {
+        session_id: session.id,
+        error: (err as Error).message,
+      })
+    }
+  }
+
   // Update session.json → status: ended.
   const sessionDir = opts.sessionDir ?? store.sessionDir
   const sessionFilePath = join(sessionDir, `${session.id}.session.json`)
@@ -216,6 +244,7 @@ export async function endSession(
     consolidation_triggered: triggered,
     proposals: reflectResult?.proposals.length ?? 0,
     episodic_path: reflectResult?.episodicPath,
+    ...(episodicV2Path ? { episodic_v2_path: episodicV2Path } : {}),
     ...(costSummary
       ? {
           tokens_total: costSummary.total.input_tokens + costSummary.total.output_tokens,
@@ -241,7 +270,77 @@ export async function endSession(
     ...(reflectResult ? { reflect: reflectResult } : {}),
     traceSteps: trace.length,
     sessionFilePath,
+    ...(episodicV2Path ? { episodicV2Path } : {}),
   }
+}
+
+/**
+ * Translate the legacy trace.jsonl into a v2 EpisodicSession +
+ * one Episode + one Turn per trace step. Conservative shape — keeps
+ * everything append-only-friendly so a future consolidator can layer
+ * episode boundary detection on top without touching the wire format.
+ */
+async function writeEpisodicV2(
+  store: MemoryStore,
+  session: SessionMetadata,
+  endedAt: string,
+  trace: TraceStep[],
+  reflectResult: ReflectResult | undefined,
+): Promise<string> {
+  const { newEpisodicSession } = await import('./episodic-v2.js')
+  const layer = store.episodicV2
+
+  // Skip if a v2 session already exists (idempotent endSession in tests).
+  const existing = await layer.readSession(session.id)
+  if (!existing) {
+    const sess = newEpisodicSession({
+      session_id: session.id,
+      system: 'gks-v3',
+      started_at: session.started_at,
+    })
+    await layer.writeSession(sess)
+  }
+
+  // Single bulk episode for the whole trace. Episode boundary
+  // detection is a follow-up — until then, one episode per session
+  // is the safe default.
+  const episodeId = `E-${session.id}-001`
+  const existingEpisodes = await layer.listEpisodes(session.id)
+  if (!existingEpisodes.some((e) => e.episode_id === episodeId)) {
+    await layer.appendEpisode(session.id, {
+      episode_id: episodeId,
+      episode_type: 'interaction',
+      ...(reflectResult?.memory.tags ? { episode_tag: reflectResult.memory.tags } : {}),
+      ...(reflectResult?.memory.linked_atoms && reflectResult.memory.linked_atoms.length > 0
+        ? { crosslinks: { references: reflectResult.memory.linked_atoms } }
+        : {}),
+      provenance: {
+        written_by: 'gks-session-end',
+        ...(reflectResult ? { llm_contribution: ['summary'] } : {}),
+      },
+    })
+
+    // One turn per trace step (best-effort 1:1). Speakers map straight
+    // through; epistemic_mode left unset (not inferable from raw kind).
+    for (const step of trace) {
+      await layer.appendTurn(session.id, {
+        episode_id: episodeId,
+        speaker: step.kind, // 'user' | 'agent' | 'tool' | 'system' | ...
+        t: step.t,
+        raw_text: step.content,
+      })
+    }
+  }
+
+  // Finalise: stamp ended_at + summary into session.json + _index.jsonl.
+  await layer.finaliseSession(session.id, {
+    ended_at: endedAt,
+    ...(reflectResult?.memory.summary ? { summary: reflectResult.memory.summary } : {}),
+    ...(reflectResult?.memory.outcomes ? { outcomes: reflectResult.memory.outcomes } : {}),
+    ...(reflectResult?.memory.tags ? { tags: reflectResult.memory.tags } : {}),
+  })
+
+  return session.id // session_id is the v2 key
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────

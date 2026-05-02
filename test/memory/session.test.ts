@@ -141,4 +141,57 @@ describe('endSession', () => {
     expect(end.reflect).toBeDefined()
     expect(end.reflect!.memory.session_id).toBe(start.session.id)
   })
+
+  it('writes EPISODIC-V2 alongside v1 by default (schemaVersion: "both")', async () => {
+    const { store, root } = await withStore()
+    cleanup.push(root)
+    const start = await startSession(store)
+
+    for (let i = 0; i < 3; i++) {
+      await store.appendTrace(start.session.id, { kind: 'user', content: `q${i}` })
+      await store.appendTrace(start.session.id, { kind: 'agent', content: `a${i}` })
+    }
+
+    const end = await endSession(store, start.session, { forceConsolidate: true })
+    // v2 path was written
+    expect(end.episodicV2Path).toBe(start.session.id)
+
+    // v2 session.json + episodes.jsonl + turns.jsonl exist
+    const v2 = await store.episodicV2.readSession(start.session.id)
+    expect(v2).toBeTruthy()
+    expect(v2!.schema_version).toBe('2.0.0')
+    expect(v2!.ended_at).toBeDefined()
+    expect(v2!.summary).toBeDefined()
+
+    const episodes = await store.episodicV2.listEpisodes(start.session.id)
+    expect(episodes).toHaveLength(1)
+    const turns = await store.episodicV2.listTurns(start.session.id, episodes[0]!.episode_id)
+    expect(turns).toHaveLength(6) // 3 user + 3 agent
+
+    // _index.jsonl carries the session row
+    const sessions = await store.episodicV2.listSessions()
+    const row = sessions.find((r) => r.session_id === start.session.id)
+    expect(row).toBeTruthy()
+    expect(row!.episode_count).toBe(1)
+    expect(row!.turn_count).toBe(6)
+
+    // session.json side-references the v2 path
+    const json = JSON.parse(await readFile(end.sessionFilePath, 'utf8')) as {
+      episodic_v2_path?: string
+    }
+    expect(json.episodic_v2_path).toBe(start.session.id)
+    void root
+  })
+
+  it('skips v2 write when schemaVersion="1"', async () => {
+    const { store, root } = await withStore()
+    cleanup.push(root)
+    const start = await startSession(store)
+    await store.appendTrace(start.session.id, { kind: 'user', content: 'hi' })
+
+    const end = await endSession(store, start.session, { schemaVersion: '1' })
+    expect(end.episodicV2Path).toBeUndefined()
+    const v2 = await store.episodicV2.readSession(start.session.id)
+    expect(v2).toBeNull()
+  })
 })

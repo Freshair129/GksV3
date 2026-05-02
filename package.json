@@ -103,6 +103,7 @@
     "rerank:logs": "docker compose -f docker-compose.rerank.yml logs -f",
     "quickstart": "tsx examples/quickstart.ts",
     "quickstart:local": "tsx examples/quickstart-local.ts",
+    "smoke:ollama": "tsx examples/smoke-ollama.ts",
     "benchmarks": "npm run bench:sweep -- --config=benchmarks/sweep.example.json",
     "changeset": "changeset",
     "version": "changeset version",

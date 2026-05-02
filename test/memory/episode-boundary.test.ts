@@ -91,8 +91,8 @@ describe('detectEpisodeBoundaries — V1-V7', () => {
     ]
     // Stub embedder: returns far-apart vectors at the boundary.
     const stubEmbedder: Embedder = {
-      provider: 'stub',
-      model: 'stub',
+      provider: 'mock',
+      model: 'stub-boundary-test',
       dimension: 2,
       async embed() {
         return [1, 0]

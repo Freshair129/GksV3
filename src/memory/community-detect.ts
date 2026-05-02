@@ -9,12 +9,21 @@
 
 import type { AtomicEntry } from './types.js'
 import type { CommunityAtomic } from './community.js'
+import type { TldrGenerator } from './tldr.js'
 
 export interface DetectCommunitiesOptions {
   /** Restrict edges to specific crosslink predicates. Default: all keys. */
   edgeKeys?: string[]
   /** Clusters with fewer members go to `orphans` instead. Default 2. */
   minSize?: number
+  /**
+   * Attach a topic-name `label` to every cluster. Per ADR--COMMUNITY-LABELS:
+   *   - false / undefined → no labels (default)
+   *   - true              → heuristic only (deterministic, zero LLM)
+   *   - { generator }     → LLM-backed via TldrGenerator; falls back to
+   *                         heuristic on error/empty output
+   */
+  withLabels?: boolean | { generator?: TldrGenerator }
 }
 
 export interface DetectedCommunity {
@@ -25,6 +34,9 @@ export interface DetectedCommunity {
   size: number
   /** Intra-community edges / max possible (n*(n-1)/2). 0..1. */
   density: number
+  /** Optional 1-4 word topic name (only when `withLabels` was requested). */
+  label?: string
+  labelSource?: 'llm' | 'heuristic' | 'fallback'
 }
 
 export interface DetectCommunitiesResult {
@@ -263,6 +275,17 @@ export function detectCommunities(
   communities.sort((a, b) => a.community_id.localeCompare(b.community_id))
   orphans.sort()
 
+  // If `withLabels` requested heuristic-only (boolean true), apply it
+  // synchronously here. The async LLM path lives in labelCommunities()
+  // so this function stays sync-callable.
+  if (opts.withLabels === true) {
+    for (const c of communities) {
+      const heur = heuristicLabel(c.members)
+      c.label = heur || c.community_id
+      c.labelSource = heur ? 'heuristic' : 'fallback'
+    }
+  }
+
   return {
     communities,
     orphans,
@@ -270,4 +293,126 @@ export function detectCommunities(
     total_edges: edges.size,
     modularity: q,
   }
+}
+
+// ─── label generation (ADR--COMMUNITY-LABELS) ──────────────────────────
+
+/**
+ * Heuristic label: longest common stem from member ids. Splits each id
+ * on `--` and `-`, keeps tokens appearing in ≥ ⌈size/2⌉ members,
+ * lower-kebab joins the survivors. Returns '' when nothing common.
+ *
+ * Examples:
+ *   [CONCEPT--SUMMARY-TLDR, ADR--SUMMARY-TLDR, FEAT--SUMMARY-TLDR]
+ *     → 'summary-tldr'
+ *   [ADR--A, BLUEPRINT--B, FEAT--C]  // no shared tokens
+ *     → ''
+ */
+export function heuristicLabel(memberIds: string[]): string {
+  if (memberIds.length === 0) return ''
+  const memberTokens = memberIds.map((id) => {
+    // Drop the prefix segment (CONCEPT--, ADR--, ...) so the cluster
+    // name is about the *topic*, not the type taxonomy.
+    const parts = id.split('--')
+    const body = parts.slice(1).join('-') || parts[0]!
+    return body.split(/[-_]/).map((s) => s.toLowerCase()).filter(Boolean)
+  })
+  // A token must appear in ≥ ⌈size/2⌉ members AND in at least 2 members
+  // total — otherwise singletons would always "match", and N=2 clusters
+  // would call any disjoint token "common". The minimum-2 floor enforces
+  // the truly-shared semantic.
+  const threshold = Math.max(2, Math.ceil(memberIds.length / 2))
+  const counts = new Map<string, number>()
+  for (const toks of memberTokens) {
+    for (const t of new Set(toks)) counts.set(t, (counts.get(t) ?? 0) + 1)
+  }
+  // Preserve order of first appearance for stability across runs.
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const toks of memberTokens) {
+    for (const t of toks) {
+      if (seen.has(t)) continue
+      seen.add(t)
+      if ((counts.get(t) ?? 0) >= threshold) ordered.push(t)
+    }
+  }
+  return ordered.join('-')
+}
+
+const COMMUNITY_LABEL_SYSTEM_PROMPT = `You produce a short topic name (1-4 words) for a cluster of related knowledge atoms.
+
+Output rules:
+- 1-4 words, plain text only.
+- No quotes, no JSON, no trailing punctuation.
+- Capitalise the first letter of each meaningful word ("Local-First Profile", "Doc-to-Code Enforcement").
+- Match the language of the input (English atoms → English label, Thai atoms → Thai label).
+- Never invent details that aren't in the cluster.
+
+Respond with ONLY the label.`
+
+/**
+ * Build the prompt for one cluster's label. Uses each member's
+ * `summary_tldr` when present; falls back to title or id.
+ */
+export function buildLabelPrompt(community: DetectedCommunity, atomic: CommunityAtomicWithFilter): string {
+  const lines: string[] = []
+  lines.push(`Cluster of ${community.size} related atoms:`)
+  for (const id of community.members) {
+    const entry = atomic.getEntry(id)
+    if (!entry) continue
+    const text = entry.summary_tldr ?? entry.title ?? entry.id
+    lines.push(`  - ${id}: ${text}`)
+  }
+  lines.push('')
+  lines.push('Now produce the topic label. Plain text only.')
+  return lines.join('\n')
+}
+
+function sanitizeLabel(raw: string): string {
+  let out = raw.trim()
+  out = out.replace(/^["'`]+|["'`]+$/g, '').trim()
+  out = out.replace(/[.!?,;:]+$/g, '').trim()
+  if (out.length > 60) out = out.slice(0, 60).trim()
+  return out
+}
+
+/**
+ * Async labelling pass. Mutates each community in `result.communities`
+ * to add `label` + `labelSource`. Choose the LLM path when a generator
+ * is supplied; falls through to heuristic on error/empty output.
+ *
+ * MemoryStore.detectCommunities() invokes this when
+ * `opts.withLabels = { generator }` is passed.
+ */
+export async function labelCommunities(
+  result: DetectCommunitiesResult,
+  atomic: CommunityAtomicWithFilter,
+  generator: TldrGenerator,
+): Promise<DetectCommunitiesResult> {
+  for (const community of result.communities) {
+    let label = ''
+    let labelSource: 'llm' | 'heuristic' | 'fallback' = 'fallback'
+    try {
+      const prompt = buildLabelPrompt(community, atomic)
+      const raw = await generator.summarize(prompt, {
+        type: 'community-label',
+        maxTokens: 24,
+      })
+      label = sanitizeLabel(raw)
+      if (label) labelSource = 'llm'
+    } catch {
+      label = ''
+    }
+    if (!label) {
+      label = heuristicLabel(community.members)
+      labelSource = label ? 'heuristic' : 'fallback'
+    }
+    if (!label) {
+      label = community.community_id
+      labelSource = 'fallback'
+    }
+    community.label = label
+    community.labelSource = labelSource
+  }
+  return result
 }

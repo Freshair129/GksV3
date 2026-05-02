@@ -61,6 +61,7 @@ import {
 import { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk.js'
 import {
   detectCommunities as doDetectCommunities,
+  labelCommunities,
   type DetectCommunitiesOptions,
   type DetectCommunitiesResult,
 } from './community-detect.js'
@@ -711,7 +712,18 @@ export class MemoryStore {
    */
   async detectCommunities(opts?: DetectCommunitiesOptions): Promise<DetectCommunitiesResult> {
     await this.atomic.loadIndex()
-    return doDetectCommunities(this.atomic, opts)
+    const result = doDetectCommunities(this.atomic, opts)
+    // LLM-backed labels: applied as a separate async pass so the pure
+    // detectCommunities() function stays sync-callable for direct
+    // consumers (per ADR--COMMUNITY-LABELS).
+    if (
+      opts?.withLabels &&
+      typeof opts.withLabels === 'object' &&
+      opts.withLabels.generator
+    ) {
+      return labelCommunities(result, this.atomic, opts.withLabels.generator)
+    }
+    return result
   }
 }
 
@@ -974,7 +986,10 @@ export { DiskCommunityCache, TieredCommunityCache } from './community-cache-disk
 export type { DiskCommunityCacheOptions } from './community-cache-disk.js'
 export {
   buildAtomGraph,
+  buildLabelPrompt,
   detectCommunities,
+  heuristicLabel,
+  labelCommunities,
   louvainLite,
 } from './community-detect.js'
 export type {

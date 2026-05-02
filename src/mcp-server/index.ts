@@ -482,6 +482,10 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
         .object({
           edgeKeys: z.array(z.string()).optional().describe('Restrict to specific crosslink predicates'),
           minSize: z.number().int().positive().optional().describe('Clusters below this size go to orphans (default 2)'),
+          withLabels: z
+            .boolean()
+            .optional()
+            .describe('Add a heuristic 1-4 word topic label to each cluster (boolean form). For LLM labels, call the Node API with { generator } directly.'),
         })
         .strict(),
     },
@@ -489,6 +493,7 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
       const result = await opts.store.detectCommunities({
         ...(args.edgeKeys ? { edgeKeys: args.edgeKeys } : {}),
         ...(args.minSize !== undefined ? { minSize: args.minSize } : {}),
+        ...(args.withLabels !== undefined ? { withLabels: args.withLabels } : {}),
       })
       return jsonReply(result)
     },

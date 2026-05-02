@@ -1332,6 +1332,7 @@ async function cmdCommunityDetect(argv: string[]): Promise<void> {
       ...GLOBAL_OPTIONS,
       edges: { type: 'string' },
       'min-size': { type: 'string' },
+      labels: { type: 'boolean' },
     },
   })
   const flags = readGlobals(values)
@@ -1347,10 +1348,32 @@ async function cmdCommunityDetect(argv: string[]): Promise<void> {
   const minSize =
     typeof minSizeRaw === 'string' ? Number.parseInt(minSizeRaw, 10) : undefined
 
+  // --labels: build withLabels per the env precedence used by tldr regen.
+  let withLabels: import('../src/memory/community-detect.js').DetectCommunitiesOptions['withLabels']
+  if (values['labels']) {
+    const { heuristicTldrGenerator, createLlmTldrGenerator } = await import(
+      '../src/memory/tldr.js'
+    )
+    if (process.env['GKS_LLM_BASE_URL'] || process.env['GKS_LLM_API_KEY']) {
+      const { createOpenAICompatibleClient } = await import(
+        '../src/memory/consolidator-llm.js'
+      )
+      withLabels = { generator: createLlmTldrGenerator({ client: createOpenAICompatibleClient() }) }
+    } else if (process.env['ANTHROPIC_API_KEY']) {
+      const { createAnthropicClient } = await import('../src/memory/consolidator-llm.js')
+      withLabels = { generator: createLlmTldrGenerator({ client: createAnthropicClient() }) }
+    } else {
+      // No LLM env → heuristic only (true).
+      withLabels = true
+      void heuristicTldrGenerator // imported for symmetry; not used here
+    }
+  }
+
   const store = await openStore(flags)
   const result = await store.detectCommunities({
     ...(edges ? { edgeKeys: edges } : {}),
     ...(minSize !== undefined ? { minSize } : {}),
+    ...(withLabels !== undefined ? { withLabels } : {}),
   })
 
   emit(flags, result, () => {
@@ -1359,8 +1382,9 @@ async function cmdCommunityDetect(argv: string[]): Promise<void> {
         `(modularity Q=${result.modularity.toFixed(3)})`,
     )
     for (const c of result.communities) {
+      const labelStr = c.label ? `  "${c.label}"` : ''
       console.log(
-        `  • ${c.community_id}  size=${c.size}  density=${c.density.toFixed(3)}`,
+        `  • ${c.community_id}${labelStr}  size=${c.size}  density=${c.density.toFixed(3)}`,
       )
       for (const m of c.members) console.log(`      ${m}`)
     }

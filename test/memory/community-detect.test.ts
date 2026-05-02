@@ -11,6 +11,7 @@ import {
   type CommunityAtomicWithFilter,
 } from '../../src/memory/community-detect.js'
 import type { AtomicEntry, AtomicNote } from '../../src/memory/types.js'
+import type { TldrGenerator } from '../../src/memory/tldr.js'
 
 function entry(
   id: string,
@@ -228,6 +229,108 @@ describe('detectCommunities', () => {
     expect(r.communities).toEqual([])
     expect(r.orphans).toEqual([])
     expect(r.modularity).toBe(0)
+  })
+})
+
+// ─── ADR--COMMUNITY-LABELS V1-V7 ────────────────────────────────────────
+
+describe('detectCommunities — withLabels (ADR--COMMUNITY-LABELS)', () => {
+  function chainFixture() {
+    return [
+      entry('CONCEPT--LOCAL-PROFILE', 1, 'concept', { references: ['ADR--LOCAL-PROFILE'] }),
+      entry('ADR--LOCAL-PROFILE', 2, 'adr', { references: ['BLUEPRINT--LOCAL-PROFILE'] }),
+      entry('BLUEPRINT--LOCAL-PROFILE', 3, 'blueprint', { references: ['FEAT--LOCAL-PROFILE'] }),
+      entry('FEAT--LOCAL-PROFILE', 2, 'feat'),
+      entry('CONCEPT--ENFORCEMENT', 1, 'concept', { references: ['ADR--ENFORCEMENT'] }),
+      entry('ADR--ENFORCEMENT', 2, 'adr'),
+    ]
+  }
+
+  it('V1: default — no label fields when withLabels not set', async () => {
+    const r = await Promise.resolve(detectCommunities(makeAtomic(chainFixture())))
+    for (const c of r.communities) {
+      expect(c.label).toBeUndefined()
+      expect(c.labelSource).toBeUndefined()
+    }
+  })
+
+  it('V2: withLabels:true → heuristic stem from common id tokens', async () => {
+    const r = detectCommunities(makeAtomic(chainFixture()), { withLabels: true })
+    const local = r.communities.find((c) => c.members.includes('FEAT--LOCAL-PROFILE'))
+    expect(local).toBeDefined()
+    expect(local!.label).toBe('local-profile')
+    expect(local!.labelSource).toBe('heuristic')
+  })
+
+  it('V3: withLabels:{generator} succeeds → labelSource=llm', async () => {
+    const { labelCommunities } = await import('../../src/memory/community-detect.js')
+    const r = detectCommunities(makeAtomic(chainFixture()))
+    const generator: TldrGenerator = {
+      name: 'llm:mock',
+      async summarize() {
+        return 'Local-First Profile'
+      },
+    }
+    const labelled = await labelCommunities(r, makeAtomic(chainFixture()) as never, generator)
+    for (const c of labelled.communities) {
+      expect(c.label).toBe('Local-First Profile')
+      expect(c.labelSource).toBe('llm')
+    }
+  })
+
+  it('V4: LLM error → fallback to heuristic', async () => {
+    const { labelCommunities } = await import('../../src/memory/community-detect.js')
+    const r = detectCommunities(makeAtomic(chainFixture()))
+    const generator: TldrGenerator = {
+      name: 'llm:fail',
+      async summarize() {
+        throw new Error('boom')
+      },
+    }
+    const labelled = await labelCommunities(r, makeAtomic(chainFixture()) as never, generator)
+    for (const c of labelled.communities) {
+      expect(c.labelSource).toBe('heuristic')
+      expect(c.label).toBeTruthy()
+    }
+  })
+
+  it('V5: heuristic empty → labelSource=fallback to community_id', async () => {
+    // No shared tokens between members → heuristic returns ''
+    const atoms = [
+      entry('A--ALPHA', 1, 'concept', { references: ['B--BETA'] }),
+      entry('B--BETA', 2, 'feat'),
+    ]
+    const r = detectCommunities(makeAtomic(atoms), { withLabels: true })
+    const c = r.communities[0]!
+    expect(c.label).toBe(c.community_id)
+    expect(c.labelSource).toBe('fallback')
+  })
+
+  it('V6: heuristicLabel extracts stem from kebab-case ids', async () => {
+    const { heuristicLabel } = await import('../../src/memory/community-detect.js')
+    expect(heuristicLabel(['CONCEPT--SUMMARY-TLDR', 'ADR--SUMMARY-TLDR', 'FEAT--SUMMARY-TLDR'])).toBe('summary-tldr')
+    expect(heuristicLabel(['ADR--FOO', 'BLUEPRINT--FOO'])).toBe('foo')
+    expect(heuristicLabel([])).toBe('')
+    // No common token
+    expect(heuristicLabel(['ADR--A', 'FEAT--B'])).toBe('')
+  })
+
+  it('V7: buildLabelPrompt includes summary_tldr when present', async () => {
+    const { buildLabelPrompt } = await import('../../src/memory/community-detect.js')
+    const atoms = [
+      entry('CONCEPT--X', 1, 'concept', undefined),
+    ]
+    atoms[0]!.summary_tldr = 'Pre-computed summary text.'
+    const atomic = makeAtomic(atoms)
+    const community = {
+      community_id: 'CONCEPT--X',
+      members: ['CONCEPT--X'],
+      size: 1,
+      density: 1,
+    }
+    const prompt = buildLabelPrompt(community, atomic as never)
+    expect(prompt).toContain('CONCEPT--X')
+    expect(prompt).toContain('Pre-computed summary text.')
   })
 })
 

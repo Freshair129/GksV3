@@ -140,6 +140,7 @@ Full taxonomy: [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md)
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Layer model + sequence diagrams |
 | [`docs/KNOWLEDGE-TYPES.md`](./docs/KNOWLEDGE-TYPES.md) | Full 30+ atom-prefix reference |
 | [`docs/MSP_RELATIONSHIP.md`](./docs/MSP_RELATIONSHIP.md) | GKS ↔ MSP contract; GitNexus peer pattern |
+| [`docs/MSP_SPEC_GAPS.md`](./docs/MSP_SPEC_GAPS.md) | MSP spec audit + improvement checklist (P0/P1/P2) |
 | [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) | OTel setup, span names, metrics, dashboards |
 | [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) | Schema versioning policy |
 | [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) | LoCoMo / LongMemEval / BEAM runners |

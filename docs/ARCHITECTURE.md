@@ -7,12 +7,21 @@ Where the BLUEPRINT is the canonical spec, this page is the
 For incremental design decisions, see the ADR series in
 [`docs/adr/`](./adr/).
 
+> Architectural boundaries (what GKS is and is NOT) are normative in
+> [ADR-008 — GKS as storage engine; Memory OS layer above](./adr/008-gks-storage-engine-scope.md)
+> and [ADR-009 — MSP orchestrates; GKS does not proxy](./adr/009-msp-as-orchestrator.md).
+> When this document and those ADRs disagree, the ADRs win.
+
 ---
 
 ## Layer dependency
 
 ```mermaid
 graph TD
+  PeerMCP1[msp-mcp-server<br/>tools: msp_*]
+  PeerMCP2[gitnexus-mcp<br/>tools: code-intel]
+  PeerMCP1 -.peer.-> MCP
+  PeerMCP2 -.peer.-> MCP
   CLI[bin/gks CLI] --> API
   MCP[gks-mcp-server] --> API
   API[api.ts<br/>retain · recall · reflect] --> Store
@@ -41,6 +50,25 @@ graph TD
 **Rule:** upper layers depend on lower; lower must NOT import from
 upper. The orchestrator (apps using GKS) sits above CLI/MCP; the API
 module knows nothing about CLI/MCP existence.
+
+> Peer MCP servers (e.g. `msp-mcp-server`, `gitnexus`) run side-by-side;
+> the agent merges tool surfaces. GKS does not import or proxy them — see
+> [ADR-009](./adr/009-msp-as-orchestrator.md).
+
+---
+
+## Public API surface
+
+v3.6+ exports `retain()`, `recall()`, `reflect()`, and
+`createNomicEmbedder()` directly from the package root — no deep imports
+needed for common paths.
+
+```ts
+import { retain, recall, reflect, createNomicEmbedder } from '@freshair129/gks'
+```
+
+Internal modules (`api.ts`, `MemoryStore`, layer adapters) remain
+accessible but are not part of the SemVer-stable surface.
 
 ---
 
@@ -179,6 +207,11 @@ the edge that was current then, not now.
 | `.brain/.../session/*.trace.jsonl` | append-only during the session |
 | `.brain/.../audit/*.jsonl` | append-only forever |
 
+> Doc-to-code phase enforcement (FRAME → CONCEPT → ADR → FEAT → BLUEPRINT
+> → CODE → AUDIT) is owned by the orchestrator above GKS — see
+> [ADR-014](./adr/014-doc-to-code-enforcement.md). GKS treats atom phase
+> as opaque metadata.
+
 ---
 
 ## Pluggable boundaries
@@ -193,7 +226,11 @@ in-process default and a production adapter:
 | Reranker | `Reranker` | BM25 lexical | `httpReranker` (TEI / BGE rerank-v2) |
 | LLM client | `LlmClient` | (heuristic in Consolidator) | `createAnthropicClient` |
 | Obsidian | `ObsidianAdapter` | `MockObsidianAdapter` | `RestObsidianAdapter`, `MCPObsidianAdapter` |
-| Embedder | `Embedder` | mock SHA-256 | Ollama `bge-m3`, OpenAI fallback |
+| Embedder | `Embedder` | mock SHA-256 | `createNomicEmbedder()` (768-dim local, default since 3.6), Ollama `bge-m3`, OpenAI fallback |
+
+> Migration: upgrading from Ollama-embedded data to nomic requires
+> `npm run re-embed` (or set `GKS_EMBEDDER=ollama` to preserve). See
+> [`docs/MIGRATIONS.md`](./MIGRATIONS.md).
 
 Adding a new backend = implement the interface + register a factory.
 No callers change.
@@ -233,6 +270,19 @@ Each is opt-out via `MemoryStoreOptions`:
 
 ---
 
+## Claude Code integration
+
+v3.6+ ships 10 slash commands under `.claude/commands/` for IDE workflows.
+
+- **Memory ops**: `/retain`, `/recall`, `/lookup`, `/reflect`
+- **Workflow**: `/new-feature`, `/propose`, `/verify`, `/validate`, `/hotfix`
+- **Status**: `/status`
+
+Slash commands wrap the same `retain` / `recall` / `reflect` exports
+documented in 'Public API surface' — they do not bypass namespace or audit.
+
+---
+
 ## Phase mapping
 
 | Phase | Status | Lives in |
@@ -245,7 +295,8 @@ Each is opt-out via `MemoryStoreOptions`:
 | 3 — Backend-pluggable benchmarks + sweep runner | ✅ | Phase 3 |
 | 4 — Observability + Resilience + Multi-tenancy + Cost + Schema migrations | ✅ | Phase 4 |
 | 5 — MCP server + CLI + ADRs | ✅ (this slice) | Phase 5 |
-| 6 — Release | pending | Phase 6 |
+| 6 — Release | ✅ | v3.6.0 (2026-04 nomic embedder + Claude Code commands) |
+| Post-Phase 6 minors | tracked in CHANGELOG | [`CHANGELOG.md`](../CHANGELOG.md) |
 
 ---
 
@@ -258,3 +309,10 @@ Each is opt-out via `MemoryStoreOptions`:
 - Schema migrations: [`docs/MIGRATIONS.md`](./MIGRATIONS.md)
 - ADRs: [`docs/adr/`](./adr/)
 - Quickstart: [`examples/quickstart.ts`](../examples/quickstart.ts)
+- Release notes: [`CHANGELOG.md`](../CHANGELOG.md)
+- MSP pairing: [`docs/MSP_RELATIONSHIP.md`](./MSP_RELATIONSHIP.md)
+- Technical overview: [`docs/TECHNICAL-OVERVIEW.md`](./TECHNICAL-OVERVIEW.md)
+- Knowledge types: [`docs/KNOWLEDGE-TYPES.md`](./KNOWLEDGE-TYPES.md)
+- Workflow: [`docs/WORKFLOW.md`](./WORKFLOW.md)
+- Onboarding: [`docs/ONBOARDING.md`](./ONBOARDING.md)
+- Slash commands: [`.claude/commands/`](../.claude/commands/)

@@ -266,6 +266,12 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
         'Walk the crosslink chain (CONCEPT -> ADR -> BLUEPRINT) and assert every node is stable. Reports the first broken edge. See ADR-014.',
       inputSchema: {
         id: z.string().regex(ATOMIC_ID_PATTERN).describe('Start atom ID (e.g. FEAT--MY-FEATURE)'),
+        throughSuperseded: z
+          .boolean()
+          .optional()
+          .describe(
+            'When true, follow crosslinks.superseded_by past superseded atoms instead of halting. Default false.',
+          ),
       },
     },
     async (args) => {
@@ -273,7 +279,9 @@ export function createGksMcpServer(opts: GksMcpServerOptions): McpServer {
       await atomic.loadIndex()
       const byId = new Map<string, AtomicEntry>()
       for (const e of atomic.filter({})) byId.set(e.id, e)
-      const result = verifyFlow(args.id, byId)
+      const result = verifyFlow(args.id, byId, {
+        throughSuperseded: args.throughSuperseded ?? false,
+      })
       return jsonReply(result)
     },
   )

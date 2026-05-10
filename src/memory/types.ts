@@ -4,8 +4,8 @@
  * Reference: BLUEPRINT--memory (Layer 1-4).
  */
 
-export type Phase = 0 | 1 | 2 | 3 | 4 | 5
-export type Status = 'raw' | 'draft' | 'stable' | 'deprecated' | 'invalid'
+export type Phase = 0 | 1 | 2 | 3 | 4 | 5 | 6
+export type Status = 'raw' | 'draft' | 'stable' | 'deprecated' | 'invalid' | 'superseded'
 
 /**
  * Normalise a status string from external input (CLI flags, frontmatter

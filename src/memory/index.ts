@@ -834,6 +834,12 @@ export type {
 } from '../lib/telemetry-setup.js'
 export { retain, recall, reflect } from './api.js'
 export type { ReflectOptions, ReflectResult } from './api.js'
+export {
+  deriveBacklinks,
+  deriveBacklinksFromEntries,
+  emitBacklinks,
+} from './backlinks.js'
+export type { BacklinkEdge, DeriveBacklinksOptions } from './backlinks.js'
 
 export { AuditLog } from './audit.js'
 export type { AuditEvent, AuditOp, AuditLogOptions } from './audit.js'

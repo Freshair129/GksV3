@@ -41,6 +41,7 @@ import { HotfixStore } from '../src/hotfix/store.js'
 import { isOverdue } from '../src/hotfix/types.js'
 import { verifyFlow, formatVerifyFlowResult } from '../src/memory/verify-flow.js'
 import { validateLinks, formatValidateLinksResult } from '../src/memory/validate-links.js'
+import { deriveBacklinks, emitBacklinks } from '../src/memory/backlinks.js'
 import { scaffoldNewFeature } from '../src/scaffold/new-feature.js'
 
 interface GlobalFlags {
@@ -103,6 +104,9 @@ async function main(): Promise<void> {
       break
     case 'inbound':
       await cmdInbound(subArgv)
+      break
+    case 'backlinks':
+      await cmdBacklinks(subArgv)
       break
     default:
       console.error(`gks: unknown subcommand '${subcmd}'`)
@@ -287,7 +291,7 @@ async function cmdProposeInbound(argv: string[]): Promise<void> {
   const store = await openStore(flags)
   const receipt = await store.proposeInbound({
     proposed_id: proposedId,
-    phase: Number(values['phase'] ?? 1) as 0 | 1 | 2 | 3 | 4 | 5,
+    phase: Number(values['phase'] ?? 1) as 0 | 1 | 2 | 3 | 4 | 5 | 6,
     type: (values['type'] as string | undefined) ?? 'insight',
     title: (values['title'] as string | undefined) ?? proposedId,
     body: (values['body'] as string | undefined) ?? '',
@@ -789,7 +793,10 @@ async function cmdVerifyFlow(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: GLOBAL_OPTIONS,
+    options: {
+      ...GLOBAL_OPTIONS,
+      'through-superseded': { type: 'boolean' },
+    },
   })
   const flags = readGlobals(values)
   const id = positionals[0]
@@ -804,7 +811,9 @@ async function cmdVerifyFlow(argv: string[]): Promise<void> {
   await atomic.loadIndex()
   const byId = new Map<string, ReturnType<typeof atomic.filter>[number]>()
   for (const e of atomic.filter({})) byId.set(e.id, e)
-  const result = verifyFlow(id, byId)
+  const result = verifyFlow(id, byId, {
+    throughSuperseded: Boolean(values['through-superseded']),
+  })
   emit(flags, result, () => {
     for (const line of formatVerifyFlowResult(result)) console.log(line)
   })
@@ -829,6 +838,51 @@ async function cmdValidate(argv: string[]): Promise<void> {
     for (const line of formatValidateLinksResult(result)) console.log(line)
   })
   if (!result.ok) process.exit(1)
+}
+
+// ─── backlinks derivation ─────────────────────────────────────────────────
+
+async function cmdBacklinks(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      ...GLOBAL_OPTIONS,
+      emit: { type: 'string' },
+      out: { type: 'string' },
+      'filter-type': { type: 'string', multiple: true },
+    },
+  })
+  const flags = readGlobals(values)
+  const format = ((values['emit'] as string | undefined) ?? 'jsonl').toLowerCase()
+  if (format !== 'jsonl' && format !== 'json') {
+    console.error(`gks backlinks: --emit must be 'jsonl' or 'json' (got '${format}')`)
+    process.exit(1)
+  }
+  const filterTypes = values['filter-type'] as string[] | undefined
+  const out = values['out'] as string | undefined
+  const store = await openStore(flags)
+
+  if (out) {
+    const result = await emitBacklinks(store.atomic, resolve(flags.root, out), {
+      format: format as 'jsonl' | 'json',
+      ...(filterTypes && filterTypes.length > 0 ? { filterTypes } : {}),
+    })
+    emit(flags, result, () => {
+      console.log(`✓ wrote ${result.edgeCount} edge(s) (${result.bytes} bytes) → ${result.path}`)
+    })
+    return
+  }
+
+  const edges = await deriveBacklinks(store.atomic, {
+    ...(filterTypes && filterTypes.length > 0 ? { filterTypes } : {}),
+  })
+  emit(flags, edges, () => {
+    if (format === 'json') {
+      console.log(JSON.stringify(edges, null, 2))
+    } else {
+      for (const e of edges) console.log(JSON.stringify(e))
+    }
+  })
 }
 
 // ─── new-feature scaffolder (ADR-014 item 5) ───────────────────────────────
@@ -1070,8 +1124,10 @@ Subcommands
   hotfix list [--overdue] [--pending]
   hotfix close HOTFIX--XXXXXXX --resolved-by=ADR-... [--resolved-by=BLUEPRINT-...]
   hotfix check --file=src/x.ts [--file=src/y.ts]   pre-commit gate; exit-1 if overdue
-  verify-flow ID                              walk crosslinks; exit-1 if any node not stable
+  verify-flow ID [--through-superseded]       walk crosslinks; exit-1 if any node not stable
   validate [--links]                          read-only crosslink integrity check
+  backlinks [--emit=jsonl|json] [--out=PATH]  derive flat (from,to,type) edge list
+            [--filter-type=references ...]    from atomic_index.jsonl
   new-feature SLUG --title="..." [--concept=...] [--adr=...] [--blueprint-file=src/x.ts ...]
                   [--task=slug ...] [--task-tracker=local|msp|external (default msp)]
                                               scaffold CONCEPT/ADR/FEAT/BLUEPRINT into inbound queue

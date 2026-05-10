@@ -241,6 +241,7 @@ inventory in [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md).
 - [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — running real-scale evals
 - [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) — OTel setup + dashboards
 - [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md) — schema versioning policy
+- [`docs/embedder-compatibility.md`](./docs/embedder-compatibility.md) — pairing GKS embedders with browse-side plugins (Smart Connections etc.)
 - [`docs/adr/`](./docs/adr/) — architecture decision records (15 entries)
 - [`gks/`](./gks/) — **the repo's own atomic knowledge tree** (eat-your-own-dog-food). 9 atoms covering the four-layer architecture, the reverse-citation lookup decision, the issue tracker, the flat-layout decision, the extended taxonomy, the doc-to-code enforcement model, and the task-tracking boundary (ADR-015). Try it:
   ```sh

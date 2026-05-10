@@ -25,14 +25,14 @@ import { isApprovedStatus } from './types.js'
 export interface WalkedEdge {
   from: string
   to: string
-  via: 'references' | 'implements' | 'parent_blueprint' | 'resolves'
+  via: 'references' | 'implements' | 'parent_blueprint' | 'resolves' | 'superseded_by'
 }
 
 /** A reason the chain isn't healthy. */
 export interface VerifyError {
   /** Atom whose status / link is bad. */
   id: string
-  kind: 'missing' | 'not_approved' | 'broken_crosslink'
+  kind: 'missing' | 'not_approved' | 'broken_crosslink' | 'supersede_cycle'
   reason: string
   /** For broken_crosslink: the unresolved id. */
   target?: string
@@ -48,7 +48,20 @@ export interface VerifyFlowResult {
   errors: VerifyError[]
 }
 
-const RELEVANT_LINKS: WalkedEdge['via'][] = [
+export interface VerifyFlowOptions {
+  /**
+   * When an atom on the walk has `status: superseded`, follow its
+   * `crosslinks.superseded_by` edge to its successor instead of treating
+   * the atom as a broken gate. Default `false` — preserves the strict
+   * behaviour required by the Agent Rule (§6.3).
+   *
+   * Cycles in the supersede chain (A → B → A) are detected via the
+   * shared `visited` set and surface as `supersede_cycle` errors.
+   */
+  throughSuperseded?: boolean
+}
+
+const RELEVANT_LINKS: Array<Exclude<WalkedEdge['via'], 'superseded_by'>> = [
   'references',
   'implements',
   'parent_blueprint',
@@ -60,7 +73,11 @@ const RELEVANT_LINKS: WalkedEdge['via'][] = [
  * map; the CLI surface is responsible for loading the index and
  * formatting output.
  */
-export function verifyFlow(startId: string, byId: Map<string, AtomicEntry>): VerifyFlowResult {
+export function verifyFlow(
+  startId: string,
+  byId: Map<string, AtomicEntry>,
+  options: VerifyFlowOptions = {},
+): VerifyFlowResult {
   const visited = new Set<string>()
   const order: AtomicEntry[] = []
   const edges: WalkedEdge[] = []
@@ -81,12 +98,43 @@ export function verifyFlow(startId: string, byId: Map<string, AtomicEntry>): Ver
     order.push(entry)
 
     if (!isApprovedStatus(entry.status)) {
-      errors.push({
-        id,
-        kind: 'not_approved',
-        reason: `status is '${entry.status}', expected 'stable' (or 'approved')`,
-      })
-      // continue walking — we want to surface every issue, not just the first
+      // When --through-superseded is on and this atom is superseded with
+      // a known successor, treat the supersede edge as the canonical
+      // continuation rather than a gate failure. This unblocks chains
+      // where an old FRAME/ADR has been formally rolled forward but
+      // downstream atoms still reference the v1 id.
+      const successor = options.throughSuperseded
+        ? firstSupersededBy(entry)
+        : undefined
+      if (entry.status === 'superseded' && successor) {
+        edges.push({ from: id, to: successor, via: 'superseded_by' })
+        if (!byId.has(successor)) {
+          errors.push({
+            id,
+            kind: 'broken_crosslink',
+            reason: 'crosslinks.superseded_by cites missing atom',
+            target: successor,
+            via: 'superseded_by',
+          })
+        } else if (visited.has(successor)) {
+          errors.push({
+            id,
+            kind: 'supersede_cycle',
+            reason: `superseded_by chain cycles back to '${successor}'`,
+            target: successor,
+            via: 'superseded_by',
+          })
+        } else {
+          queue.push(successor)
+        }
+      } else {
+        errors.push({
+          id,
+          kind: 'not_approved',
+          reason: `status is '${entry.status}', expected 'stable' (or 'approved')`,
+        })
+        // continue walking — we want to surface every issue, not just the first
+      }
     }
 
     if (!entry.crosslinks) continue
@@ -114,6 +162,15 @@ export function verifyFlow(startId: string, byId: Map<string, AtomicEntry>): Ver
   return { ok: errors.length === 0, start: startId, visited: order, edges, errors }
 }
 
+function firstSupersededBy(entry: AtomicEntry): string | undefined {
+  const arr = entry.crosslinks?.['superseded_by']
+  if (!Array.isArray(arr)) return undefined
+  for (const t of arr) {
+    if (typeof t === 'string' && t.length > 0) return t
+  }
+  return undefined
+}
+
 /** Pretty-print a result for CLI output. Returns the formatted lines. */
 export function formatVerifyFlowResult(result: VerifyFlowResult): string[] {
   const lines: string[] = []
@@ -130,6 +187,8 @@ export function formatVerifyFlowResult(result: VerifyFlowResult): string[] {
       lines.push(`  ✗ ${err.id}: ${err.reason}`)
     } else if (err.kind === 'not_approved') {
       lines.push(`  ✗ ${err.id}: ${err.reason}`)
+    } else if (err.kind === 'supersede_cycle') {
+      lines.push(`  ✗ ${err.id} → ${err.target} (via ${err.via}): ${err.reason}`)
     } else {
       lines.push(`  ✗ ${err.id} → ${err.target} (via ${err.via}): ${err.reason}`)
     }

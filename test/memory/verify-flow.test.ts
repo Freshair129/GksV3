@@ -103,6 +103,81 @@ describe('verifyFlow', () => {
     expect(result.edges.map((e) => e.via).sort()).toEqual(['parent_blueprint', 'resolves'])
   })
 
+  it('halts at superseded atoms by default (preserves strict gate)', () => {
+    const byId = map([
+      entry({ id: 'FEAT--X', crosslinks: { references: ['FRAME--V1'] } }),
+      entry({
+        id: 'FRAME--V1',
+        type: 'frame',
+        status: 'superseded' as 'stable',
+        crosslinks: { superseded_by: ['FRAME--V2'], references: ['ADR--SHARED'] },
+      }),
+      entry({ id: 'FRAME--V2', type: 'frame' }),
+      entry({ id: 'ADR--SHARED', type: 'adr' }),
+    ])
+    const result = verifyFlow('FEAT--X', byId)
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.kind === 'not_approved' && e.id === 'FRAME--V1')).toBe(true)
+    // No supersede edge walked when the flag is off.
+    expect(result.edges.some((e) => e.via === 'superseded_by')).toBe(false)
+  })
+
+  it('walks through superseded atoms when throughSuperseded is on', () => {
+    const byId = map([
+      entry({ id: 'FEAT--X', crosslinks: { references: ['FRAME--V1'] } }),
+      entry({
+        id: 'FRAME--V1',
+        type: 'frame',
+        status: 'superseded' as 'stable',
+        crosslinks: { superseded_by: ['FRAME--V2'], references: ['ADR--SHARED'] },
+      }),
+      entry({ id: 'FRAME--V2', type: 'frame' }),
+      entry({ id: 'ADR--SHARED', type: 'adr' }),
+    ])
+    const result = verifyFlow('FEAT--X', byId, { throughSuperseded: true })
+    expect(result.ok).toBe(true)
+    expect(result.errors).toHaveLength(0)
+    expect(result.edges.some((e) => e.via === 'superseded_by' && e.to === 'FRAME--V2')).toBe(true)
+    // FRAME--V1's existing references.* edges are still walked too.
+    expect(result.visited.map((v) => v.id)).toContain('ADR--SHARED')
+  })
+
+  it('detects supersede cycles when throughSuperseded is on', () => {
+    const byId = map([
+      entry({
+        id: 'FRAME--V1',
+        type: 'frame',
+        status: 'superseded' as 'stable',
+        crosslinks: { superseded_by: ['FRAME--V2'] },
+      }),
+      entry({
+        id: 'FRAME--V2',
+        type: 'frame',
+        status: 'superseded' as 'stable',
+        crosslinks: { superseded_by: ['FRAME--V1'] },
+      }),
+    ])
+    const result = verifyFlow('FRAME--V1', byId, { throughSuperseded: true })
+    expect(result.ok).toBe(false)
+    expect(result.errors.some((e) => e.kind === 'supersede_cycle')).toBe(true)
+  })
+
+  it('reports broken superseded_by target as broken_crosslink when throughSuperseded is on', () => {
+    const byId = map([
+      entry({
+        id: 'FRAME--V1',
+        type: 'frame',
+        status: 'superseded' as 'stable',
+        crosslinks: { superseded_by: ['FRAME--MISSING'] },
+      }),
+    ])
+    const result = verifyFlow('FRAME--V1', byId, { throughSuperseded: true })
+    expect(result.ok).toBe(false)
+    const broken = result.errors.find((e) => e.kind === 'broken_crosslink')
+    expect(broken?.target).toBe('FRAME--MISSING')
+    expect(broken?.via).toBe('superseded_by')
+  })
+
   it('formatVerifyFlowResult produces human-readable lines', () => {
     const byId = map([
       entry({ id: 'FEAT--X', crosslinks: { references: ['ADR--GHOST'] } }),

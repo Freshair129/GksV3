@@ -280,7 +280,7 @@ function validateId(id: string): void {
 }
 
 function validatePhase(phase: Phase): void {
-  if (!Number.isInteger(phase) || phase < 0 || phase > 5) {
-    throw new Error(`InboundQueue: invalid phase ${phase}, must be integer 0..5`)
+  if (!Number.isInteger(phase) || phase < 0 || phase > 6) {
+    throw new Error(`InboundQueue: invalid phase ${phase}, must be integer 0..6`)
   }
 }

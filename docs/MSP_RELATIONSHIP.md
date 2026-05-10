@@ -9,15 +9,33 @@
 > The "why" is MSP. This doc records the relationship without coupling
 > the two.
 
+## Which MSP?
+
+The name "MSP" is overloaded. Two distinct projects share it, and the
+contract this doc describes is broad enough to cover both:
+
+| | **MSP-v9.1** (EVA's) | **MSP-this-repo** ([`Freshair129/msp`](https://github.com/Freshair129/msp)) |
+|---|---|---|
+| Language | Python | TypeScript |
+| Focus | Biological consolidation Memory OS — RI levels, RMS affect, Session→Core→Sphere cascade | Passport-orchestrator — agent-agnostic, plugs into Claude Code / Gemini CLI / Antigravity / EVA / Hermes / openclaw |
+| Process IDs | `MSP-IMP-` / `-TSK-` / `-ACT-` / `-WKT-` (EVA's `FRAMEWORK_MASTER_SPEC.md`) | None — agent-neutral |
+| Workflow today | EVA's six-phase cascade | `msp_candidate` MCP tool → `.brain/msp/projects/<id>/candidates/` → human PR → `gks/` |
+
+When this doc says "MSP-this-repo" it means the TypeScript orchestrator;
+when it says "MSP-v9.1" or "EVA's MSP" it means the Python Memory OS.
+"MSP" without qualification is the broader pattern both implement.
+
 ## TL;DR
 
 - **GKS** = storage engine (this repo). Owns: atomic / vector / episodic
   / obsidian, audit log, namespace, MCP server, CLI.
-- **MSP** = Memory OS gatekeeper (lives in your project, e.g. EVA).
-  Owns: schema validation, ID-uniqueness, wikilink resolution, promote
-  workflow, process-artifact IDs (`MSP-IMP-`, `MSP-TSK-`, …).
-- **Contract**: GKS exposes `proposeInbound()` as the *only* write-path
-  to candidate atoms; MSP validates + promotes; `gks/` is write-protected.
+- **MSP** = Memory OS gatekeeper (lives in your project, e.g. EVA, or
+  in [`Freshair129/msp`](https://github.com/Freshair129/msp)). Owns:
+  schema validation, ID-uniqueness, wikilink resolution, candidate→PR
+  promote workflow.
+- **Contract**: GKS exposes `proposeInbound()` (programmatic) and a
+  `candidates/` directory convention (review-flow). MSP validates +
+  produces a PR; `gks/` is write-protected.
 
 ## Why GKS doesn't ship MSP itself
 
@@ -39,7 +57,7 @@ room for an MSP-shaped layer above:
 | `src/memory/inbound.ts` constructor | Refuses inbound dir inside `gksRoot` | `gks/` stays write-protected; inbound is the only entry |
 | `MemoryStore.proposeInbound()` (`src/memory/index.ts`) | Single write API for candidate atoms | MSP can't be bypassed |
 | `src/memory/atomic-id.ts` `ATOMIC_ID_PATTERN` | TYPE--SLUG format check | MSP's ID conventions plug in here |
-| `src/memory/index.ts` `gksLayout()` | Default paths under `.brain/msp/projects/<path>/{inbound,session,memory,audit}/` | Defaults match MSP layout exactly |
+| `src/memory/index.ts` `gksLayout()` | Default paths under `.brain/msp/projects/<path>/{inbound,session,memory,audit}/` | Defaults match MSP layout exactly. **Note**: `inbound/` is still in the default layout for back-compat with non-MSP consumers; MSP-this-repo now writes to `candidates/` instead (see below). |
 | `src/memory/inbound.ts` `renderArtifactMarkdown` | Stamps namespace + frontmatter | MSP reviewers see provenance |
 | `src/memory/audit.ts` (append-only JSONL) | Every write op is logged | MSP relies on this for traceability |
 
@@ -56,14 +74,17 @@ What MSP owns (and GKS does *not*):
   - ID uniqueness (e.g. ADR number = max+1)
   - Wikilink resolution (`[[X]]` must resolve to a real atom)
   - Forbidden fields (`commit_hash`, `reviewer_approved_at`, …)
-- **Workflow**
-  - Agent → `/submit-memory` → inbound queue → human review → promote → `gks/`
-- **Process artifacts**
-  - `MSP-IMP-` (P3 plan) → `MSP-TSK-` (P4 task) → `MSP-ACT-` (P5 action)
-    → `MSP-WKT-` (P6 walkthrough), all carrying `sessionId` for audit
-    traceability
-- **CLI commands**
-  - `npm run msp:propose` / `review` / `promote` / `validate` / `index`
+- **Workflow** (MSP-this-repo, current — completed
+  `BLUEPRINT--INBOUND-TO-CANDIDATES-MIGRATION` in Phase 3, see
+  `Freshair129/msp@7eff62b`)
+  - Agent → `msp_candidate` MCP tool → `.brain/msp/projects/<id>/candidates/`
+    → human review (PR) → `gks/`
+  - The earlier `/submit-memory` slash command + `msp_propose` MCP tool
+    + `scripts/msp/propose.mjs` are removed; the inbound queue is gone.
+- **CLI commands** (MSP-this-repo, current)
+  - `npm run msp:validate`, `msp:check-links`, `msp:run-task`,
+    `msp:master`, `msp:graph`, `msp:hotfix:*`
+  - `msp:propose` / `:review` / `:promote` are removed.
 - **Pre-commit hook**
   - Blocks commits if MSP validation fails
 - **Contract files**
@@ -71,6 +92,41 @@ What MSP owns (and GKS does *not*):
   - `.brain/msp/LLM_Contract/codegen_microtask_contract.yaml` (Phase 3.5)
 
 None of this lives in GKS.
+
+### What MSP-this-repo owns (agent-agnostic)
+
+The TypeScript orchestrator at `Freshair129/msp` formally declared
+itself agent-agnostic and removed EVA's `CORE_FRAMEWORK_MASTER_SPEC.md`
+(see [Freshair129/msp#65](https://github.com/Freshair129/msp/pull/65)).
+Its public surface is now:
+
+| Concern | Owner |
+|---|---|
+| Candidate atom intake (`msp_candidate` MCP tool) | MSP-this-repo |
+| `candidates/` → PR diffing + reviewer workflow | MSP-this-repo |
+| Schema / wikilink / ID-uniqueness validation | MSP-this-repo |
+| Pre-commit hook orchestration | MSP-this-repo |
+| Hotfix lifecycle CLI (`msp:hotfix:*`) | MSP-this-repo |
+| RI / RMS / Session→Core→Sphere cascade | **EVA's MSP-v9.1** (not MSP-this-repo) |
+| `MSP-IMP-` / `MSP-TSK-` / `MSP-ACT-` / `MSP-WKT-` IDs | **EVA's `FRAMEWORK_MASTER_SPEC.md`** (not MSP-this-repo) |
+
+If you're integrating MSP-this-repo into a non-EVA agent (Claude Code,
+Gemini CLI, Antigravity, Hermes, openclaw, …) the right-hand rows
+above don't apply — they're EVA-specific.
+
+### EVA-specific process artifacts
+
+EVA's MSP-v9.1 uses these IDs to mark its six-phase cascade:
+
+- `MSP-IMP-` (P3 plan) → `MSP-TSK-` (P4 task) → `MSP-ACT-` (P5 action)
+  → `MSP-WKT-` (P6 walkthrough), all carrying `sessionId` for audit
+  traceability.
+
+These come from EVA's `FRAMEWORK_MASTER_SPEC.md` (referenced in
+[`SCOPE.md`](../SCOPE.md)). They are **not** part of the GKS↔MSP
+contract — a non-EVA Memory OS doesn't need them. If you're wiring
+GKS to EVA specifically, treat the above as the authoritative ID
+list; otherwise ignore.
 
 ## Other Memory OS layers that fit
 

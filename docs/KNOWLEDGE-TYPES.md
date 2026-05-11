@@ -24,7 +24,7 @@ the answer is here. Templates for each prefix live in
 | `ENDPOINT--` | Implementation | One API path / method |
 | `ENTRYPOINT--` | Implementation | Auth / middleware / access logic |
 | `PARAMS--` | Implementation | Constants / business config |
-| `FRAME--` | Implementation | Code standards / framework rules |
+| `FRAME--` | Implementation | Architectural frameworks / methodology / code standards |
 | `BLUEPRINT--` | Implementation | YAML implementation plan |
 | `AUDIT--` | Implementation | Test results / quality report |
 | `HOTFIX--` | Ops | Hotfix escape-hatch atom (48h backfill window — ADR-014) |
@@ -118,8 +118,8 @@ where most contributions go.
 - **Don't use for:** infra constants (Postgres pool size etc.) — those live in `ops/` configs.
 - **Phase:** P2.
 
-### `FRAME--` · code standards / framework rules
-- **Use for:** "all DB calls go through repositories", "components ≤ 500 LOC", lint policy.
+### `FRAME--` · architectural frameworks / methodology / code standards
+- **Use for:** architectural patterns, governance frameworks, higher-level invariant methodologies (Master/Genesis blocks, JTBD, Design Thinking), and code standards ("all DB calls go through repositories", "components ≤ 500 LOC", lint policy).
 - **Don't use for:** runtime behavioural constraints — those are `GUARDRAIL--`.
 - **Phase:** P2.
 

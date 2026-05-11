@@ -13,11 +13,11 @@
 
 - **GKS** = storage engine (this repo). Owns: atomic / vector / episodic
   / obsidian, audit log, namespace, MCP server, CLI.
-- **MSP** = Memory OS gatekeeper (lives in your project, e.g. EVA).
-  Owns: schema validation, ID-uniqueness, wikilink resolution, promote
-  workflow, process-artifact IDs (`MSP-IMP-`, `MSP-TSK-`, …).
-- **Contract**: GKS exposes `proposeInbound()` as the *only* write-path
-  to candidate atoms; MSP validates + promotes; `gks/` is write-protected.
+- **MSP** = Memory OS passport / orchestrator. Agent-agnostic (plugs into Claude Code, Antigravity, EVA, etc.).
+  Owns: schema validation, ID-uniqueness, wikilink resolution, candidates
+  workflow, and agent-specific episodic memory.
+- **Which MSP?**: There are two. **MSP-v9.1** (Python) is EVA's biological memory system. **MSP-this-repo** (TypeScript) is the agent-agnostic orchestrator described here.
+- **Contract**: GKS exposes `proposeInbound()` as the entry point for candidate atoms; MSP validates + human review (PR) promotes to `gks/`; the canonical store is write-protected.
 
 ## Why GKS doesn't ship MSP itself
 
@@ -39,7 +39,7 @@ room for an MSP-shaped layer above:
 | `src/memory/inbound.ts` constructor | Refuses inbound dir inside `gksRoot` | `gks/` stays write-protected; inbound is the only entry |
 | `MemoryStore.proposeInbound()` (`src/memory/index.ts`) | Single write API for candidate atoms | MSP can't be bypassed |
 | `src/memory/atomic-id.ts` `ATOMIC_ID_PATTERN` | TYPE--SLUG format check | MSP's ID conventions plug in here |
-| `src/memory/index.ts` `gksLayout()` | Default paths under `.brain/msp/projects/<path>/{inbound,session,memory,audit}/` | Defaults match MSP layout exactly |
+| `src/memory/index.ts` `gksLayout()` | Default paths under `.brain/msp/projects/<path>/{inbound,session,memory,audit}/` | Defaults match MSP legacy layout; modern MSP uses `candidates/` instead of `inbound/` |
 | `src/memory/inbound.ts` `renderArtifactMarkdown` | Stamps namespace + frontmatter | MSP reviewers see provenance |
 | `src/memory/audit.ts` (append-only JSONL) | Every write op is logged | MSP relies on this for traceability |
 
@@ -56,12 +56,13 @@ What MSP owns (and GKS does *not*):
   - ID uniqueness (e.g. ADR number = max+1)
   - Wikilink resolution (`[[X]]` must resolve to a real atom)
   - Forbidden fields (`commit_hash`, `reviewer_approved_at`, …)
-- **Workflow**
+- **Workflow (Modern)**
+  - Agent → `msp_candidate` (MCP) → `.brain/.../candidates/` → human PR review → merge to `gks/`
+- **Workflow (Legacy)**
   - Agent → `/submit-memory` → inbound queue → human review → promote → `gks/`
-- **Process artifacts**
+- **Process artifacts (EVA-specific)**
   - `MSP-IMP-` (P3 plan) → `MSP-TSK-` (P4 task) → `MSP-ACT-` (P5 action)
-    → `MSP-WKT-` (P6 walkthrough), all carrying `sessionId` for audit
-    traceability
+    → `MSP-WKT-` (P6 walkthrough). Note: the TypeScript MSP is agent-agnostic and does not enforce these specific IDs by default.
 - **CLI commands**
   - `npm run msp:propose` / `review` / `promote` / `validate` / `index`
 - **Pre-commit hook**
@@ -94,7 +95,7 @@ If you're building a Memory OS for GKS, verify:
 - [ ] Writes go *only* through `proposeInbound()` — never directly to `gks/`
 - [ ] Frontmatter validated against your schema **before** calling
       `proposeInbound` — GKS only checks ID format + phase range
-- [ ] Promote step moves `inbound/<id>.<rev>.md` →
+- [ ] Promote step moves `candidates/<id>.md` (or legacy `inbound/`) →
       `gks/<phase>/<type>/<slug>.md`
 - [ ] Promote step appends/updates `gks/00_index/atomic_index.jsonl`
 - [ ] Your process-artifact IDs (`MSP-IMP-` / `-TSK-` / `-WKT-`) carry
